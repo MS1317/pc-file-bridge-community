@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"],
+    "baseUrl": ".",
+    "paths": { "shared": ["../../packages/shared/src/index.ts"] }
+  },
+  "include": ["src"]
+}

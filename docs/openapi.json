@@ -1,0 +1,268 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ChatGPT PC File Bridge",
+    "version": "0.2.0",
+    "description": "Localhost-only bridge for controlled, approval-gated file edits on registered project folders. In production this sits behind a cloud relay — ChatGPT never calls localhost directly."
+  },
+  "servers": [
+    { "url": "https://your-relay.example.com", "description": "Future cloud relay (Stage 2)" }
+  ],
+  "security": [{ "BearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Workspace": {
+        "type": "object",
+        "required": ["id", "name", "allowedGlobs", "blockedGlobs", "writeMode", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "allowedGlobs": { "type": "array", "items": { "type": "string" } },
+          "blockedGlobs": { "type": "array", "items": { "type": "string" } },
+          "writeMode": { "type": "string", "enum": ["approval_required", "auto_apply"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "WorkspacePolicyUpdate": {
+        "type": "object",
+        "required": ["allowedGlobs", "blockedGlobs"],
+        "properties": {
+          "allowedGlobs": { "type": "array", "items": { "type": "string" } },
+          "blockedGlobs": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "FileEntry": {
+        "type": "object",
+        "required": ["relativePath", "sizeBytes", "modifiedAt"],
+        "properties": {
+          "relativePath": { "type": "string" },
+          "sizeBytes": { "type": "integer" },
+          "modifiedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FileContent": {
+        "type": "object",
+        "required": ["relativePath", "content", "hash", "sizeBytes", "encoding"],
+        "properties": {
+          "relativePath": { "type": "string" },
+          "content": { "type": "string" },
+          "hash": { "type": "string", "description": "SHA-256 hex" },
+          "sizeBytes": { "type": "integer" },
+          "encoding": { "type": "string", "enum": ["utf8"] }
+        }
+      },
+      "SearchMatch": {
+        "type": "object",
+        "required": ["relativePath", "line", "column", "preview"],
+        "properties": {
+          "relativePath": { "type": "string" },
+          "line": { "type": "integer" },
+          "column": { "type": "integer" },
+          "preview": { "type": "string" }
+        }
+      },
+      "ChangePreviewResult": {
+        "type": "object",
+        "required": ["pendingChangeId", "workspaceId", "relativePath", "newHash", "diff", "warnings", "safe", "fileExists", "expiresAt"],
+        "properties": {
+          "pendingChangeId": { "type": "string" },
+          "workspaceId": { "type": "string" },
+          "relativePath": { "type": "string" },
+          "oldHash": { "type": ["string", "null"] },
+          "newHash": { "type": "string" },
+          "diff": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "safe": { "type": "boolean" },
+          "fileExists": { "type": "boolean" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PendingChange": {
+        "type": "object",
+        "required": ["pendingChangeId", "workspaceId", "relativePath", "newHash", "diff", "warnings", "createdAt", "expiresAt", "status"],
+        "properties": {
+          "pendingChangeId": { "type": "string" },
+          "workspaceId": { "type": "string" },
+          "relativePath": { "type": "string" },
+          "baseHash": { "type": ["string", "null"] },
+          "newHash": { "type": "string" },
+          "diff": { "type": "string" },
+          "reason": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["pending", "applied", "rejected", "expired"] }
+        }
+      },
+      "ApplyChangeResult": {
+        "type": "object",
+        "required": ["success", "backupId", "relativePath", "newHash", "diff", "auditId"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "backupId": { "type": "string" },
+          "relativePath": { "type": "string" },
+          "oldHash": { "type": ["string", "null"] },
+          "newHash": { "type": ["string", "null"], "description": "SHA-256 of the resulting file; null means the file is absent." },
+          "diff": { "type": "string" },
+          "auditId": { "type": "string" }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "required": ["id", "timestamp", "action", "workspaceId", "relativePath", "newHash", "backupId"],
+        "properties": {
+          "id": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "action": { "type": "string", "enum": ["apply", "revert", "token_rotation", "terminal_command", "spreadsheet"] },
+          "workspaceId": { "type": "string" },
+          "relativePath": { "type": "string" },
+          "oldHash": { "type": ["string", "null"] },
+          "newHash": { "type": ["string", "null"], "description": "SHA-256 of the resulting file; null means the file is absent." },
+          "backupId": { "type": "string" },
+          "reason": { "type": "string" },
+          "revertedFromId": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Health check — no auth required",
+        "security": [],
+        "responses": {
+          "200": { "description": "Running" }
+        }
+      }
+    },
+    "/workspaces": {
+      "get": {
+        "operationId": "listWorkspaces",
+        "summary": "List registered workspaces",
+        "responses": { "200": { "description": "Workspace list" } }
+      }
+    },
+    "/workspaces/{id}/policy": {
+      "put": {
+        "summary": "Update a workspace file-access policy",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WorkspacePolicyUpdate" } } }
+        },
+        "responses": { "200": { "description": "Updated workspace" }, "400": { "description": "Invalid policy" }, "404": { "description": "Workspace not found" } }
+      }
+    },
+    "/files/list": {
+      "post": {
+        "operationId": "listFiles",
+        "summary": "List accessible files in a workspace",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId"], "properties": { "workspaceId": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "File entries" } }
+      }
+    },
+    "/files/search": {
+      "post": {
+        "operationId": "searchFiles",
+        "summary": "Full-text search across workspace files",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "query"], "properties": { "workspaceId": { "type": "string" }, "query": { "type": "string" }, "glob": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Matches" } }
+      }
+    },
+    "/files/read": {
+      "post": {
+        "operationId": "readFile",
+        "summary": "Read file content and SHA-256 hash",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "relativePath"], "properties": { "workspaceId": { "type": "string" }, "relativePath": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "File content" } }
+      }
+    },
+    "/changes/preview": {
+      "post": {
+        "operationId": "previewChange",
+        "summary": "Preview a change and create a pending record",
+        "description": "No files are written. Returns pendingChangeId. Must call /changes/apply to commit.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "relativePath", "newContent"], "properties": { "workspaceId": { "type": "string" }, "relativePath": { "type": "string" }, "newContent": { "type": "string" }, "baseHash": { "type": "string" }, "reason": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Preview result with pendingChangeId" } }
+      }
+    },
+    "/changes/pending": {
+      "get": {
+        "operationId": "listPendingChanges",
+        "summary": "List all pending changes (in-memory, cleared on restart)",
+        "responses": { "200": { "description": "Pending changes" } }
+      }
+    },
+    "/changes/apply": {
+      "post": {
+        "operationId": "applyChange",
+        "summary": "Apply a pending change by ID",
+        "description": "Re-validates path + hash. Creates backup. Writes file. Appends audit entry.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "pendingChangeId"], "properties": { "workspaceId": { "type": "string" }, "pendingChangeId": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Apply result" } }
+      }
+    },
+    "/changes/reject": {
+      "post": {
+        "operationId": "rejectChange",
+        "summary": "Reject a pending change",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["pendingChangeId"], "properties": { "pendingChangeId": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Rejected" } }
+      }
+    },
+    "/changes/recent": {
+      "get": {
+        "operationId": "getRecentChanges",
+        "summary": "Get recent audit log entries",
+        "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } }],
+        "responses": { "200": { "description": "Audit entries newest-first" } }
+      }
+    },
+    "/changes/revert": {
+      "post": {
+        "operationId": "revertChange",
+        "summary": "Revert a previous apply by audit ID",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "auditId"], "properties": { "workspaceId": { "type": "string" }, "auditId": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Revert result" } }
+      }
+    },
+    "/spreadsheets/{action}": {
+      "post": {
+        "operationId": "spreadsheetAction",
+        "summary": "Run a typed XLSX spreadsheet action",
+        "description": "Use for workbook structure, sheets, cells, rows, and ranges instead of shell/PowerShell/XML manipulation. Supported actions are inspect_spreadsheet, read_spreadsheet_range, search_spreadsheet, append_spreadsheet_rows, update_spreadsheet_range, update_spreadsheet_rows_by_key, upsert_spreadsheet_rows, create_spreadsheet, and create_spreadsheet_sheet. Only .xlsx is supported; the shared spreadsheet contract is the source of truth for request schemas and limits.",
+        "parameters": [{ "name": "action", "in": "path", "required": true, "schema": { "type": "string", "enum": ["inspect_spreadsheet", "read_spreadsheet_range", "search_spreadsheet", "append_spreadsheet_rows", "update_spreadsheet_range", "update_spreadsheet_rows_by_key", "upsert_spreadsheet_rows", "create_spreadsheet", "create_spreadsheet_sheet"] } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["workspaceId", "relativePath"], "properties": { "workspaceId": { "type": "string" }, "relativePath": { "type": "string", "description": "Workspace-relative .xlsx path" } }, "additionalProperties": true } } }
+        },
+        "responses": { "200": { "description": "Structured spreadsheet result with hashes, verification status, and audit data for writes" }, "400": { "description": "Normalized spreadsheet failure" }, "409": { "description": "Concurrent modification" } }
+      }
+    }
+  }
+}
