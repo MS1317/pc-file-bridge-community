@@ -1,6 +1,7 @@
 {
   "name": "chatgpt-pc-file-bridge",
   "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
   "private": true,
   "scripts": {
     "dev": "concurrently \"corepack pnpm --filter bridge-api dev\" \"corepack pnpm --filter dashboard dev\"",
