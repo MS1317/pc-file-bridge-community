@@ -1,0 +1,12 @@
+{
+  "//": "Solution-style root config. Build uses each package's own tsconfig; this exists so editors resolve every package's files to a project in the pnpm workspace.",
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/core" },
+    { "path": "./apps/bridge-api" },
+    { "path": "./apps/mcp-server" },
+    { "path": "./apps/dashboard" },
+    { "path": "./apps/relay-server" }
+  ]
+}

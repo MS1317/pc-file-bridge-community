@@ -1,0 +1,74 @@
+# .bridgeignore — workspace-local ignore rules for PC File Bridge
+#
+# Copy this file to your workspace root as ".bridgeignore" and customize it.
+# One glob pattern per line. Blank lines and lines starting with # are ignored.
+#
+# Patterns are matched against relative paths using micromatch (glob syntax).
+# Both "my-dir" and "my-dir/**" work to exclude a directory and its contents.
+#
+# These rules are in ADDITION to built-in security defaults (see docs/SECURITY.md).
+# They do NOT replace path guards, symlink checks, or the default blocked globs.
+
+# ── Package manager caches (already blocked by default — shown for reference) ──
+#
+# The following are already in the built-in skip list and do NOT need to be
+# added here. Listed for reference only.
+#
+# .pnpm-store/**
+# .yarn/cache/**  .yarn/unplugged/**
+# .npm/**
+# .bun-install-cache/**
+# .nx/cache/**
+# .angular/cache/**
+
+# ── Framework output (not built-in — add if your project generates these) ─────
+
+# Framework-specific compiled output
+# .output/**
+# .svelte-kit/**
+# storybook-static/**
+# .expo/**
+# .expo-shared/**
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+
+# Custom build output directory (rename to match your project)
+# my-output-dir/**
+
+# Framework-specific compiled output
+# .output/**
+# .svelte-kit/**
+# storybook-static/**
+
+# ── Test and CI artifacts ─────────────────────────────────────────────────────
+
+# Test result files
+# test-results/**
+# playwright-report/**
+# junit-results/**
+
+# ── Generated files ───────────────────────────────────────────────────────────
+
+# Auto-generated code
+# generated/**
+# __generated__/**
+# src/gql/**
+
+# ── Large data or binary directories ─────────────────────────────────────────
+
+# Dataset or model directories (can be large)
+# data/**
+# models/**
+# datasets/**
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+
+# Log files
+# logs/**
+# *.log
+
+# ── Temp directories ──────────────────────────────────────────────────────────
+
+# Scratch directories
+# tmp/**
+# scratch/**

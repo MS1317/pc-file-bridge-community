@@ -1,0 +1,35 @@
+{
+  "name": "chatgpt-pc-file-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"corepack pnpm --filter bridge-api dev\" \"corepack pnpm --filter dashboard dev\"",
+    "dev:mcp": "concurrently \"corepack pnpm --filter bridge-api dev\" \"corepack pnpm --filter dashboard dev\" \"corepack pnpm --filter mcp-server dev\"",
+    "mcp": "corepack pnpm --filter mcp-server dev",
+    "bridge:start": "node ./scripts/bridge-dev.mjs",
+    "bridge:safe": "node ./scripts/bridge-dev.mjs",
+    "bridge:write": "node ./scripts/bridge-dev.mjs",
+    "bridge:check": "node ./scripts/bridge-check.mjs",
+    "bridge:stop": "node ./scripts/bridge-stop.mjs",
+    "preflight:mcp": "node ./scripts/preflight-mcp.mjs",
+    "tunnel:tailscale": "node ./scripts/tailscale-funnel.cjs on",
+    "tunnel:tailscale:status": "node ./scripts/tailscale-funnel.cjs status",
+    "tunnel:tailscale:off": "node ./scripts/tailscale-funnel.cjs off",
+    "token:mcp": "node ./scripts/print-mcp-token.mjs",
+    "token:mcp:rotate": "node ./scripts/rotate-mcp-token.mjs",
+    "build": "corepack pnpm --filter shared build && corepack pnpm --filter core build && corepack pnpm --filter bridge-api build && corepack pnpm --filter mcp-server build && corepack pnpm --filter dashboard build",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r --workspace-concurrency=1 --if-present test",
+    "api": "corepack pnpm --filter bridge-api dev",
+    "ui": "corepack pnpm --filter dashboard dev",
+    "mcp:server": "corepack pnpm --filter mcp-server dev",
+    "relay": "corepack pnpm --filter relay-server dev",
+    "agent": "corepack pnpm --filter bridge-agent dev",
+    "dev:relay-local": "concurrently \"corepack pnpm --filter bridge-api dev\" \"corepack pnpm --filter relay-server dev\" \"corepack pnpm --filter bridge-agent dev\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  }
+}

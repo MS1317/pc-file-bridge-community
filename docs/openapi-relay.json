@@ -1,0 +1,205 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ChatGPT PC File Bridge — Relay API",
+    "version": "0.1.0",
+    "description": "GPT-facing relay endpoints. ChatGPT calls these; the relay forwards requests to the connected PC bridge agent over WebSocket. The relay never touches files directly and never sees the local bridge auth token."
+  },
+  "servers": [
+    { "url": "http://127.0.0.1:4888", "description": "Local relay simulation (Stage 2A)" },
+    { "url": "https://your-relay.example.com", "description": "Future cloud relay (Stage 2B)" }
+  ],
+  "security": [{ "BearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Relay client token (separate from the local bridge auth token). This is what ChatGPT's GPT Action presents to the relay."
+      }
+    },
+    "schemas": {
+      "RelayRequest": {
+        "type": "object",
+        "required": ["deviceId", "operation"],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "ID of the target PC bridge agent device"
+          },
+          "operation": {
+            "type": "string",
+            "description": "Dot-notation operation name (must be on allowlist)",
+            "enum": [
+              "health",
+              "workspaces.list",
+              "files.list",
+              "files.search",
+              "files.read",
+              "changes.preview",
+              "changes.pending",
+              "changes.apply",
+              "changes.reject",
+              "changes.recent",
+              "changes.revert"
+            ]
+          },
+          "body": {
+            "description": "Request body forwarded to the bridge API (operation-specific)",
+            "oneOf": [
+              { "$ref": "#/components/schemas/FilesListBody" },
+              { "$ref": "#/components/schemas/FilesSearchBody" },
+              { "$ref": "#/components/schemas/FilesReadBody" },
+              { "$ref": "#/components/schemas/ChangesPreviewBody" },
+              { "$ref": "#/components/schemas/ChangesApplyBody" },
+              { "$ref": "#/components/schemas/ChangesRejectBody" },
+              { "$ref": "#/components/schemas/ChangesRevertBody" }
+            ]
+          }
+        }
+      },
+      "FilesListBody": {
+        "type": "object",
+        "required": ["workspaceId"],
+        "properties": { "workspaceId": { "type": "string" } }
+      },
+      "FilesSearchBody": {
+        "type": "object",
+        "required": ["workspaceId", "query"],
+        "properties": {
+          "workspaceId": { "type": "string" },
+          "query": { "type": "string" },
+          "glob": { "type": "string" }
+        }
+      },
+      "FilesReadBody": {
+        "type": "object",
+        "required": ["workspaceId", "relativePath"],
+        "properties": {
+          "workspaceId": { "type": "string" },
+          "relativePath": { "type": "string" }
+        }
+      },
+      "ChangesPreviewBody": {
+        "type": "object",
+        "required": ["workspaceId", "relativePath", "newContent"],
+        "properties": {
+          "workspaceId": { "type": "string" },
+          "relativePath": { "type": "string" },
+          "newContent": { "type": "string" },
+          "baseHash": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      },
+      "ChangesApplyBody": {
+        "type": "object",
+        "required": ["workspaceId", "pendingChangeId"],
+        "properties": {
+          "workspaceId": { "type": "string" },
+          "pendingChangeId": { "type": "string" }
+        }
+      },
+      "ChangesRejectBody": {
+        "type": "object",
+        "required": ["pendingChangeId"],
+        "properties": { "pendingChangeId": { "type": "string" } }
+      },
+      "ChangesRevertBody": {
+        "type": "object",
+        "required": ["workspaceId", "auditId"],
+        "properties": {
+          "workspaceId": { "type": "string" },
+          "auditId": { "type": "string" }
+        }
+      },
+      "DeviceStatus": {
+        "type": "object",
+        "required": ["deviceId", "connected", "lastSeenAt", "sessionId", "bridgeApiHealthy", "agentVersion"],
+        "properties": {
+          "deviceId": { "type": "string" },
+          "connected": { "type": "boolean" },
+          "lastSeenAt": { "type": ["string", "null"], "format": "date-time" },
+          "sessionId": { "type": ["string", "null"] },
+          "bridgeApiHealthy": { "type": ["boolean", "null"] },
+          "agentVersion": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "relayHealth",
+        "summary": "Relay health check — no auth required",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Relay is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "service": { "type": "string" },
+                    "version": { "type": "string" },
+                    "connectedDevices": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "summary": "List connected bridge agent devices",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Device list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "devices": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/DeviceStatus" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gpt/request": {
+      "post": {
+        "operationId": "gptRequest",
+        "summary": "Forward a bridge operation to a connected PC device",
+        "description": "The relay authenticates the caller, validates the operation against the allowlist, locates the target device, and forwards the request over the outbound WebSocket. The relay never sees the local bridge auth token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RelayRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Proxied response from bridge API" },
+          "400": { "description": "Invalid operation or request" },
+          "401": { "description": "Invalid relay client token" },
+          "429": { "description": "Rate limit exceeded", "headers": { "Retry-After": { "schema": { "type": "integer" } } } },
+          "503": { "description": "Device offline" },
+          "504": { "description": "Device did not respond in time" }
+        }
+      }
+    }
+  }
+}
