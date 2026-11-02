@@ -91,7 +91,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       return reply.status(403).send({ ok: false, error: 'Local dashboard only' });
     }
     const origin = req.headers.origin;
-    if (origin && origin !== 'http://localhost:4778' && origin !== 'http://127.0.0.1:4778') {
+    if (origin !== 'http://localhost:4778' && origin !== 'http://127.0.0.1:4778') {
       return reply.status(403).send({ ok: false, error: 'Untrusted origin' });
     }
   };
@@ -113,17 +113,6 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     try { return { ok: true, data: access.reject((req.params as { id: string }).id) }; }
     catch (e) { return reply.status(409).send({ ok: false, error: String(e) }); }
   });
-  const gated = (kind: AccessKind, action: string, body: any, execute: () => unknown) => {
-    const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId : '';
-    const details: Record<string, string> = {};
-    for (const key of ['relativePath', 'command', 'jobId', 'pendingChangeId', 'auditId']) {
-      if (typeof body?.[key] === 'string') details[key] = body[key].slice(0, 500);
-    }
-    const result = access.submit(kind, action, workspaceId, action + ' requested for ' + (workspaceId || 'workspace'), details, execute);
-    if (result && typeof (result as any).then === 'function') return result;
-    return result;
-  };
-
   const internalExecutionKey = crypto.randomUUID();
   app.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
     if (req.url.startsWith('/access/')) return;
