@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildServer } from '../server';
+import { buildServer } from './server';
 
 const TOKEN = 'a'.repeat(64);
 const origin = 'http://127.0.0.1:4778';
