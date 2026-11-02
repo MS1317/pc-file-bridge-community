@@ -621,6 +621,13 @@ export function createToolDefinitions(policy: TerminalExecutionPolicy = TERMINAL
     annotations: { destructiveHint: true },
   },
   ...SPREADSHEET_TOOL_DEFINITIONS,
+  {
+    name: 'get_operation_approval',
+    title: 'Check local approval status',
+    description: 'Poll a local approval request. When approved, returns the executed operation result.',
+    inputSchema: { type: 'object', properties: { approvalId: { type: 'string' } }, required: ['approvalId'], additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
   ];
 }
 
@@ -776,6 +783,10 @@ async function callTool(
       return textResult(result);
     }
     switch (name) {
+      case 'get_operation_approval': {
+        const approvalId = getString(args.approvalId, 'approvalId');
+        return textResult(await bridgeApi.approvalStatus(approvalId));
+      }
       case 'list_workspaces': {
         const workspaces = await bridgeApi.listWorkspaces();
         return textResult(sanitizeWorkspaces(workspaces));
