@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { AccessControl, type AccessKind } from './accessControl';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
@@ -40,6 +42,11 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const { dataDir, tokenRef, terminalPolicy = TERMINAL_EXECUTION_POLICY } = opts;
 
   const access = new AccessControl(dataDir);
+  const adminTokenPath = path.join(dataDir, 'local-admin-token.txt');
+  fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(adminTokenPath)) fs.writeFileSync(adminTokenPath, crypto.randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+  const localAdminToken = fs.readFileSync(adminTokenPath, 'utf8').trim();
+
   const registry = new WorkspaceRegistry(dataDir);
   const fileService = new FileService();
   const auditLog = new AuditLog(dataDir);
@@ -90,6 +97,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     if (ip !== '127.0.0.1' && ip !== '::1') {
       return reply.status(403).send({ ok: false, error: 'Local dashboard only' });
     }
+    if (!validateToken(String(req.headers['x-local-admin-token'] ?? ''), localAdminToken)) {
+      return reply.status(403).send({ ok: false, error: 'Local administrator token required' });
+    }
     const origin = req.headers.origin;
     if (origin !== 'http://localhost:4778' && origin !== 'http://127.0.0.1:4778') {
       return reply.status(403).send({ ok: false, error: 'Untrusted origin' });
@@ -118,8 +128,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     if (req.url.startsWith('/access/')) return;
     const path = req.url.split('?')[0];
     const terminal = ['/terminal/run', '/terminal/start', '/terminal/renew', '/terminal/stop'].includes(path);
+    const spreadsheetMutations = ['append_spreadsheet_rows', 'update_spreadsheet_range', 'update_spreadsheet_rows_by_key', 'upsert_spreadsheet_rows', 'create_spreadsheet', 'create_spreadsheet_sheet'];
     const write = ['/changes/write', '/changes/apply', '/changes/revert'].includes(path)
-      || (path.startsWith('/spreadsheets/') && !['inspect_spreadsheet', 'read_spreadsheet_range', 'search_spreadsheet', 'get_spreadsheet_metadata'].includes(path.split('/')[2]));
+      || (path.startsWith('/spreadsheets/') && spreadsheetMutations.includes(path.split('/')[2]));
     if (!terminal && !write) return;
     if (req.headers['x-local-approval-execution'] === internalExecutionKey) return;
     const kind: AccessKind = terminal ? 'terminal' : 'fileWrites';
