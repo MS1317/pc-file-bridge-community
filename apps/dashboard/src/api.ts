@@ -27,7 +27,7 @@ async function request<T>(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${getToken()}`,
-      'X-Local-Admin-Token': localStorage.getItem('bridge_local_admin_token') ?? '',
+      ...(path.startsWith('/access/') ? { 'X-Local-Admin-Token': localStorage.getItem('bridge_local_admin_token') ?? '' } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
