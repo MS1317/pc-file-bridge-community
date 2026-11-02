@@ -30,7 +30,7 @@ describe('bridge HTTP API', () => {
 
     tokenRef = { value: TOKEN };
     app = await buildServer({ dataDir, tokenRef });
-    const controls = await app.inject({ method: 'PUT', url: '/access/policy', headers: { ...auth(), origin: 'http://127.0.0.1:4778' }, payload: { fileWrites: true, terminal: true, requireApproval: false } });
+    const controls = await app.inject({ method: 'PUT', url: '/access/policy', headers: { ...auth(), origin: 'http://127.0.0.1:4778', 'x-local-admin-token': fs.readFileSync(path.join(dataDir, 'local-admin-token.txt'), 'utf8').trim() }, payload: { fileWrites: true, terminal: true, requireApproval: false } });
     expect(controls.statusCode).toBe(200);
     const created = await app.inject({
       method: 'POST',
