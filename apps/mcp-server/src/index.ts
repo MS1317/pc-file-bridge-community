@@ -19,9 +19,6 @@ async function main() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   const isExposed = !isLocalhost(HOST);
-  if (isExposed && process.env.MCP_ENABLE_WRITES === 'true' && process.env.MCP_ALLOW_REMOTE_WRITES !== 'true') {
-    throw new Error('Refusing remote writes without MCP_ALLOW_REMOTE_WRITES=true');
-  }
 
   // Load or generate MCP remote token (ChatGPT-facing; separate from internal bridge API token)
   const mcpToken = process.env.MCP_REMOTE_TOKEN?.trim() || loadOrCreateMcpRemoteToken(DATA_DIR);
@@ -54,7 +51,7 @@ async function main() {
 
   console.log('');
   console.log('==============================================');
-  console.log(' ChatGPT PC File Bridge MCP v0.1.0');
+  console.log(' PC File Bridge MCP v0.1.0');
   console.log('==============================================');
   console.log(` MCP endpoint : http://${HOST}:${PORT}/mcp`);
   console.log(` Health       : http://${HOST}:${PORT}/health`);
