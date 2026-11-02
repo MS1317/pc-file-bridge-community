@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "ChatGPT PC File Bridge — Relay API",
+    "title": "PC File Bridge — Relay API",
     "version": "0.1.0",
     "description": "GPT-facing relay endpoints. ChatGPT calls these; the relay forwards requests to the connected PC bridge agent over WebSocket. The relay never touches files directly and never sees the local bridge auth token."
   },
