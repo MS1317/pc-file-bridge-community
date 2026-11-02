@@ -12,7 +12,7 @@ const LINE = '='.repeat(52);
 
 console.log('');
 console.log(LINE);
-console.log('  ChatGPT PC File Bridge');
+console.log('  PC File Bridge');
 console.log('  MCP tools: read / search / preview / apply enabled');
 console.log(LINE);
 console.log('');

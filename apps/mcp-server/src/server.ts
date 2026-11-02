@@ -25,7 +25,7 @@ import type { BridgeApiClient, PublicFileEntry, PublicWorkspace } from './bridge
 import { BridgeApiError } from './bridgeApiClient';
 
 const MCP_PROTOCOL_VERSION = '2025-11-25';
-const MCP_SERVER_NAME = 'chatgpt-pc-file-bridge-mcp';
+const MCP_SERVER_NAME = 'pc-file-bridge-mcp';
 const MCP_SERVER_VERSION = '0.1.0';
 
 interface JsonRpcRequest {
@@ -621,6 +621,13 @@ export function createToolDefinitions(policy: TerminalExecutionPolicy = TERMINAL
     annotations: { destructiveHint: true },
   },
   ...SPREADSHEET_TOOL_DEFINITIONS,
+  {
+    name: 'get_operation_approval',
+    title: 'Check local approval status',
+    description: 'Poll a local approval request. When approved, returns the executed operation result.',
+    inputSchema: { type: 'object', properties: { approvalId: { type: 'string' } }, required: ['approvalId'], additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
   ];
 }
 
@@ -693,11 +700,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     mcpTokenRef,
     terminalPolicy = TERMINAL_EXECUTION_POLICY,
   } = opts;
-  const allowWrites = process.env.MCP_ENABLE_WRITES === 'true';
-  const allowTerminal = allowWrites && process.env.MCP_ENABLE_TERMINAL === 'true';
-  const writeTools = new Set(['apply_change', 'apply_pending_change', 'revert_change', 'append_spreadsheet_rows', 'update_spreadsheet_range', 'update_spreadsheet_rows_by_key', 'upsert_spreadsheet_rows', 'create_spreadsheet', 'create_spreadsheet_sheet']);
-  const terminalTools = new Set(['run_terminal_command', 'start_terminal_command', 'get_terminal_command', 'renew_terminal_command', 'stop_terminal_command']);
-  const toolDefinitions = createToolDefinitions(terminalPolicy).filter((t) => (allowWrites || !writeTools.has(t.name)) && (allowTerminal || !terminalTools.has(t.name)));
+  // The Bridge API owns live capability settings and local approvals.
+  // Tools stay discoverable so clients can submit requests when settings change.
+  const toolDefinitions = createToolDefinitions(terminalPolicy);
   const app = Fastify({ logger: false });
 
   app.get('/health', async () => {
@@ -740,7 +745,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   // ── Path-token routes (/mcp/:remoteToken) ──────────────────────────────────
-  // Used by ChatGPT: Authentication = No Auth, Server URL = .../mcp/<token>
+  // Compatibility route for MCP clients that cannot send Authorization headers.
 
   app.get('/mcp/:remoteToken', async (req: FastifyRequest, reply: FastifyReply) => {
     const { remoteToken } = req.params as { remoteToken: string };
@@ -778,6 +783,10 @@ async function callTool(
       return textResult(result);
     }
     switch (name) {
+      case 'get_operation_approval': {
+        const approvalId = getString(args.approvalId, 'approvalId');
+        return textResult(await bridgeApi.approvalStatus(approvalId));
+      }
       case 'list_workspaces': {
         const workspaces = await bridgeApi.listWorkspaces();
         return textResult(sanitizeWorkspaces(workspaces));

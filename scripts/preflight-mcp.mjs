@@ -141,7 +141,7 @@ async function main() {
     params: {},
   });
   assert(initialize.response.ok, 'MCP initialize request failed (header auth)');
-  assert(initialize.json?.result?.serverInfo?.name === 'chatgpt-pc-file-bridge-mcp', 'Unexpected MCP server name');
+  assert(initialize.json?.result?.serverInfo?.name === 'pc-file-bridge-mcp', 'Unexpected MCP server name');
   ok('MCP initialize returned server metadata (Authorization: Bearer)');
 
   const toolsList = await mcpPost({
@@ -166,7 +166,7 @@ async function main() {
     params: {},
   });
   assert(initializePath.response.ok, 'MCP initialize request failed (path-token auth)');
-  assert(initializePath.json?.result?.serverInfo?.name === 'chatgpt-pc-file-bridge-mcp', 'Unexpected MCP server name (path auth)');
+  assert(initializePath.json?.result?.serverInfo?.name === 'pc-file-bridge-mcp', 'Unexpected MCP server name (path auth)');
   ok('MCP initialize returned server metadata (path-token /mcp/<token>)');
 
   const toolsListPath = await mcpPostPath({

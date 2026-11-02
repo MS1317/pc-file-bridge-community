@@ -254,3 +254,8 @@ If the write fails partway through, the backup already exists and can be used fo
 
 ## Community edition hardening
 Set MCP_ENABLE_WRITES=true to enable file modifications. Set both MCP_ENABLE_WRITES=true and MCP_ENABLE_TERMINAL=true to enable shell commands. Tool visibility and direct invocation enforce these checks. A tunnel can expose even a localhost listener; do not assume localhost binding alone means remote clients cannot reach it.
+
+
+## Community edition: live local approval policy
+
+Legacy MCP_ENABLE_WRITES and MCP_ENABLE_TERMINAL launch instructions above are superseded. Set live capabilities in Dashboard > Access Control at http://127.0.0.1:4778/access. Bridge API enforces this policy for Claude, ChatGPT and other MCP clients. The separate administrator credential is generated on-device at data/local-admin-token.txt. File modifications and terminal commands are off by default. Per-operation approvals expire after 10 minutes, live only in memory and cannot be reused. Terminal commands are not OS-sandboxed.
