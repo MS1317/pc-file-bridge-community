@@ -15,7 +15,7 @@ describe('API capability controls and local approvals', () => {
   });
   afterEach(async () => { await app.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
-  const req = (method: string, url: string, payload?: unknown, trusted = false) => ({
+  const req = (method: string, url: string, payload?: Record<string, unknown>, trusted = false) => ({
     method: method as 'GET' | 'PUT' | 'POST',
     url,
     headers: { authorization: 'Bearer ' + TOKEN, ...(trusted ? { origin } : {}) },
