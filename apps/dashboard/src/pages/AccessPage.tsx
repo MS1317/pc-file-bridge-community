@@ -70,7 +70,9 @@ export default function AccessPage() {
     {approvals.filter(a => a.state === 'pending').map(a => <div className="card" key={a.approvalId} style={{ marginBottom: 12 }}>
       <b>{a.kind === 'terminal' ? 'Terminal' : 'File modification'}: {a.action}</b>
       <p style={{ margin: '8px 0', fontSize: 12 }}>Workspace: {a.workspaceId || 'Not specified'}</p>
-      {Object.entries(a.details).filter(([,v]) => v).map(([k,v]) => <div key={k} style={{ marginBottom: 5, overflowWrap: 'anywhere' }}><code>{k}: {v}</code></div>)}
+      {Object.entries(a.details).filter(([k,v]) => v && k !== 'payload').map(([k,v]) => <div key={k} style={{ marginBottom: 5, overflowWrap: 'anywhere' }}><code>{k}: {v}</code></div>)}
+      <div style={{ fontSize: 12, marginTop: 10, marginBottom: 6 }}>Exact submitted payload (review before approving)</div>
+      <pre style={{ fontSize: 11, maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: '#0b0e1a', padding: 12, borderRadius: 6 }}>{a.details.payload}</pre>
       <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Expires {new Date(a.expiresAt).toLocaleString()}</p>
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="btn-primary" disabled={busy} onClick={() => decision(a.approvalId, true)}>Approve & execute</button>
