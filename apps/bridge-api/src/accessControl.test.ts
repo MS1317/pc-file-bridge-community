@@ -46,6 +46,26 @@ describe('API capability controls and local approvals', () => {
     expect(repeat.statusCode).toBe(409);
   });
 
+  it('executes a queued file modification only after local approval and blocks replay', async () => {
+    const workspaceRoot = path.join(root, 'workspace');
+    fs.mkdirSync(workspaceRoot);
+    const created = await app.inject(req('POST', '/workspaces', { name: 'Fixture', root: workspaceRoot, allowedGlobs: ['**/*'], blockedGlobs: [] }));
+    expect(created.statusCode).toBe(201);
+    const workspaceId = created.json().data.id as string;
+    const policy = await app.inject(req('PUT', '/access/policy', { fileWrites: true, terminal: false, requireApproval: true }, true));
+    expect(policy.statusCode).toBe(200);
+    const proposed = await app.inject(req('POST', '/changes/write', { workspaceId, relativePath: 'new.ts', newContent: 'export const valid = true;' }));
+    expect(proposed.statusCode).toBe(202);
+    expect(fs.existsSync(path.join(workspaceRoot, 'new.ts'))).toBe(false);
+    const id = proposed.json().data.approvalId as string;
+    const approved = await app.inject(req('POST', '/access/approvals/' + id + '/approve', {}, true));
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().data.state).toBe('approved');
+    expect(fs.readFileSync(path.join(workspaceRoot, 'new.ts'), 'utf8')).toBe('export const valid = true;');
+    const replay = await app.inject(req('POST', '/access/approvals/' + id + '/approve', {}, true));
+    expect(replay.statusCode).toBe(409);
+  });
+
   it('rejects malformed access policies', async () => {
     const response = await app.inject(req('PUT', '/access/policy', { fileWrites: 'yes' }, true));
     expect(response.statusCode).toBe(400);
