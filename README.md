@@ -5,6 +5,8 @@ A local bridge for approved workspace files with two integration paths:
 - MCP Developer Mode via `apps/mcp-server`
 - OpenAPI / GPT Actions via the existing bridge-api + relay path
 
+[Connecting Claude, ChatGPT, and other MCP clients](docs/CLIENT_CONNECTIONS.md) · [Local access control and approvals](docs/SECURITY.md)
+
 Both paths use the same safety layer: auth, path guards, glob filtering, pending-change preview, backups, audit log, and a local dashboard.
 
 > Services listen locally by default. Tunneling the MCP endpoint exposes it to network clients; never expose the bridge API or dashboard.
