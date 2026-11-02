@@ -1,5 +1,5 @@
 /**
- * Print the MCP remote token (for ChatGPT configuration).
+ * Print the MCP remote token (for MCP client configuration).
  * Generates and saves to data/mcp-remote-token.txt on first run.
  * Does NOT rotate the token.
  */
@@ -23,7 +23,7 @@ if (!fs.existsSync(tokenPath)) {
 const token = fs.readFileSync(tokenPath, 'utf8').trim();
 
 console.log('');
-console.log('MCP Remote Token (paste into ChatGPT MCP configuration):');
+console.log('MCP Remote Token (paste into MCP client MCP configuration):');
 console.log('');
 console.log(token);
 console.log('');
