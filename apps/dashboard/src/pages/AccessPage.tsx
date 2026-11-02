@@ -6,6 +6,7 @@ export default function AccessPage() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('bridge_local_admin_token') ?? '');
   const refresh = useCallback(async () => {
     const [p, a] = await Promise.all([api.getAccessPolicy(), api.listApprovals()]);
     if (p.ok) setPolicy(p.data);
@@ -38,6 +39,12 @@ export default function AccessPage() {
   return <div style={{ maxWidth: 860 }}>
     <h1 style={{ fontSize: 22, marginBottom: 8 }}>Access Control</h1>
     <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>Controls apply to every MCP client, including Claude and ChatGPT. The bridge API enforces them.</p>
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h3>Local administrator credential</h3>
+      <p style={{ fontSize: 12, margin: '8px 0', color: 'var(--text-muted)' }}>Read <code>data/local-admin-token.txt</code> on the computer running the bridge. This separate token is required to change permissions or approve operations.</p>
+      <input aria-label="Local admin token" type="password" placeholder="Paste local admin token" value={adminToken} onChange={e => setAdminToken(e.target.value)} style={{ width: '100%', padding: 10, marginBottom: 10 }} />
+      <button className="btn-primary" onClick={() => { localStorage.setItem('bridge_local_admin_token', adminToken.trim()); setMessage('Local administrator credential saved in this browser.'); refresh(); }}>Save local credential</button>
+    </div>
     {message && <div className="card" style={{ marginBottom: 16 }}>{message}</div>}
     {policy && <div className="card" style={{ marginBottom: 20 }}>
       <h3 style={{ marginBottom: 12 }}>Capabilities</h3>
