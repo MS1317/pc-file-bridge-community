@@ -33,7 +33,18 @@ async function request<T>(
   return res.json();
 }
 
+export interface AccessPolicy { fileWrites: boolean; terminal: boolean; requireApproval: boolean }
+export interface ApprovalRequest {
+  approvalId: string; kind: string; action: string; workspaceId: string;
+  details: Record<string, string>; state: string; createdAt: string; expiresAt: string;
+  error?: string; result?: unknown;
+}
 export const api = {
+  getAccessPolicy: () => request<AccessPolicy>('GET', '/access/policy'),
+  setAccessPolicy: (policy: AccessPolicy) => request<AccessPolicy>('PUT', '/access/policy', policy),
+  listApprovals: () => request<ApprovalRequest[]>('GET', '/access/approvals'),
+  approveAccess: (id: string) => request<ApprovalRequest>('POST', '/access/approvals/' + encodeURIComponent(id) + '/approve'),
+  rejectAccess: (id: string) => request<ApprovalRequest>('POST', '/access/approvals/' + encodeURIComponent(id) + '/reject'),
   health: () => request<{ status: string }>('GET', '/health'),
 
   // Workspaces
