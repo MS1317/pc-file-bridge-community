@@ -16,7 +16,7 @@ async function main() {
 
   console.log('');
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║     ChatGPT PC File Bridge API v0.2        ║');
+  console.log('║     PC File Bridge API v0.2        ║');
   console.log('╠════════════════════════════════════════════╣');
   console.log(`║  Listening on  http://${HOST}:${PORT}       ║`);
   console.log(`║  Dashboard     http://127.0.0.1:4778       ║`);
