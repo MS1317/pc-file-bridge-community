@@ -18,7 +18,7 @@ describe('API capability controls and local approvals', () => {
   const req = (method: string, url: string, payload?: Record<string, unknown>, trusted = false) => ({
     method: method as 'GET' | 'PUT' | 'POST',
     url,
-    headers: { authorization: 'Bearer ' + TOKEN, ...(trusted ? { origin } : {}) },
+    headers: { authorization: 'Bearer ' + TOKEN, ...(trusted ? { origin, 'x-local-admin-token': fs.readFileSync(path.join(root, 'local-admin-token.txt'), 'utf8').trim() } : {}) },
     ...(payload === undefined ? {} : { payload }),
   });
 
