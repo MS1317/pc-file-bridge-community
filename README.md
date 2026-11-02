@@ -1,4 +1,4 @@
-# ChatGPT PC File Bridge
+# PC File Bridge
 
 A local bridge for approved workspace files with two integration paths:
 
@@ -10,7 +10,11 @@ Both paths use the same safety layer: auth, path guards, glob filtering, pending
 > Services listen locally by default. Tunneling the MCP endpoint exposes it to network clients; never expose the bridge API or dashboard.
 
 ## Community security defaults
-File writes through MCP are disabled unless MCP_ENABLE_WRITES=true. Terminal tools additionally require MCP_ENABLE_TERMINAL=true. All requests are checked server-side even if a client calls hidden tool names directly. Terminal commands are NOT OS-sandboxed; never enable for unknown clients. Remote MCP URLs containing bearer tokens must remain secret.
+**Read-only by default.** Use Dashboard → Access Control to enable file changes and terminal commands independently. Operations require local dashboard approval unless you explicitly disable approval. These policies are enforced by Bridge API, including direct requests from any MCP client.
+
+The first time you configure local approvals, copy the separately generated credential from `data/local-admin-token.txt` into the dashboard. Do not share this credential with any MCP client. Operation requests expire after 10 minutes. Terminal commands are **not OS-sandboxed**, and run with your computer account privileges.
+
+Compatible with **Claude, ChatGPT, and other clients supporting MCP over HTTP**. The client authenticates to the MCP server; approval is handled locally. When a tool returns `approvalRequired` and `approvalId`, approve it in the local dashboard and call `get_operation_approval` to fetch its result.
 
 ## Quick Start
 
@@ -117,7 +121,7 @@ The XLSX provider edits only the required worksheet/workbook XML and carries all
 
 The `run_terminal_command` tool requires a registered `workspaceId`, starts in that workspace (or an existing `relativeCwd` inside it), ignores stdin, strips secret-bearing inherited environment variables, applies the synchronous limits in `TERMINAL_EXECUTION_POLICY`, caps output, and records the command and outcome in the audit log. For longer work, `start_terminal_command` returns stable `jobId`, `leaseId`, and eventual process identity; poll it with `get_terminal_command`, renew ownership with `renew_terminal_command`, and stop it with `stop_terminal_command`. The requested process lifetime is separate from the bounded renewable supervisor lease, and persisted job state survives API restarts.
 
-The tool is disabled by default on MCP. Enable file writes with MCP_ENABLE_WRITES=true, and separately enable shell tools with MCP_ENABLE_TERMINAL=true. It is not an OS sandbox: commands run as your local user and can access anything that user can access. Only run the bridge while you trust the MCP client and every holder of the MCP URL token.
+The tool is controlled in Dashboard → Access Control, with a local approval queue. It is not an OS sandbox: commands run as your local user and can access anything that user can access. Only run the bridge while you trust the MCP client and every holder of the MCP URL token.
 
 ### Targeted edits (line-based)
 
