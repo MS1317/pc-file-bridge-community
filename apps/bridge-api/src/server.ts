@@ -137,9 +137,15 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     // Only locally approved execution may bypass the gate. This is private to the server instance.
     const body = req.body as any;
     try {
+      // Display the complete submitted operation locally; never approve an unseen suffix.
+      const serialized = JSON.stringify(body ?? {});
+      if (serialized.length > 128 * 1024) {
+        return reply.status(413).send({ ok: false, error: 'Approval payload exceeds 128 KiB; split the operation into smaller changes' });
+      }
       const result = access.submit(kind, path, body?.workspaceId || '', path + ' requested', {
         relativePath: String(body?.relativePath || ''),
-        command: String(body?.command || '').slice(0, 500)
+        command: String(body?.command || ''),
+        payload: serialized
       }, async () => {
         const response = await app.inject({ method: 'POST', url: path, headers: {
           authorization: 'Bearer ' + tokenRef.value,
