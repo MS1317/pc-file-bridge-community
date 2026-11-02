@@ -41,6 +41,7 @@ export class BridgeApiError extends Error {
 
 export interface BridgeApiClient {
   health(): Promise<{ status: string }>;
+  approvalStatus(approvalId: string): Promise<{ approvalId: string; state: string; result?: unknown; error?: string }>;
   listWorkspaces(): Promise<PublicWorkspace[]>;
   listFiles(workspaceId: string): Promise<PublicFileEntry[]>;
   searchFiles(workspaceId: string, query: string, glob?: string): Promise<SearchMatch[]>;
@@ -124,6 +125,8 @@ export function createBridgeApiClient(options: BridgeApiClientOptions): BridgeAp
 
   return {
     health: () => request<{ status: string }>('GET', '/health'),
+    approvalStatus: (approvalId: string) =>
+      request<{ approvalId: string; state: string; result?: unknown; error?: string }>('GET', '/access/approvals/' + encodeURIComponent(approvalId)),
     listWorkspaces: async () => {
       const workspaces = await request<Workspace[]>('GET', '/workspaces');
       return workspaces.map(({ root: _root, ...workspace }) => workspace);

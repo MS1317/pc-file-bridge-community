@@ -1,3 +1,7 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { AccessControl, type AccessKind } from './accessControl';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import {
@@ -36,6 +40,12 @@ export interface ServerOptions {
 
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
   const { dataDir, tokenRef, terminalPolicy = TERMINAL_EXECUTION_POLICY } = opts;
+
+  const access = new AccessControl(dataDir);
+  const adminTokenPath = path.join(dataDir, 'local-admin-token.txt');
+  fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(adminTokenPath)) fs.writeFileSync(adminTokenPath, crypto.randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+  const localAdminToken = fs.readFileSync(adminTokenPath, 'utf8').trim();
 
   const registry = new WorkspaceRegistry(dataDir);
   const fileService = new FileService();
@@ -81,6 +91,78 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   // ── Health ──────────────────────────────────────────────────────────────────
+  // Access settings can only be changed by the local dashboard, never by remote MCP clients.
+  const localOnly = async (req: FastifyRequest, reply: FastifyReply) => {
+    const ip = req.ip.replace(/^::ffff:/, '');
+    if (ip !== '127.0.0.1' && ip !== '::1') {
+      return reply.status(403).send({ ok: false, error: 'Local dashboard only' });
+    }
+    if (!validateToken(String(req.headers['x-local-admin-token'] ?? ''), localAdminToken)) {
+      return reply.status(403).send({ ok: false, error: 'Local administrator token required' });
+    }
+    const origin = req.headers.origin;
+    if (origin !== 'http://localhost:4778' && origin !== 'http://127.0.0.1:4778') {
+      return reply.status(403).send({ ok: false, error: 'Untrusted origin' });
+    }
+  };
+  app.get('/access/policy', async () => ({ ok: true, data: access.getPolicy() }));
+  app.put('/access/policy', { preHandler: localOnly }, async (req, reply) => {
+    try { return { ok: true, data: access.setPolicy(req.body) }; }
+    catch (e) { return reply.status(400).send({ ok: false, error: String(e) }); }
+  });
+  app.get('/access/approvals', { preHandler: localOnly }, async () => ({ ok: true, data: access.list() }));
+  app.get('/access/approvals/:id', async (req, reply) => {
+    const item = access.status((req.params as { id: string }).id);
+    return item ? { ok: true, data: item } : reply.status(404).send({ ok: false, error: 'Not found' });
+  });
+  app.post('/access/approvals/:id/approve', { preHandler: localOnly }, async (req, reply) => {
+    try { return { ok: true, data: await access.approve((req.params as { id: string }).id) }; }
+    catch (e) { return reply.status(409).send({ ok: false, error: String(e) }); }
+  });
+  app.post('/access/approvals/:id/reject', { preHandler: localOnly }, async (req, reply) => {
+    try { return { ok: true, data: access.reject((req.params as { id: string }).id) }; }
+    catch (e) { return reply.status(409).send({ ok: false, error: String(e) }); }
+  });
+  const internalExecutionKey = crypto.randomUUID();
+  app.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (req.url.startsWith('/access/')) return;
+    const path = req.url.split('?')[0];
+    const terminal = ['/terminal/run', '/terminal/start', '/terminal/renew', '/terminal/stop'].includes(path);
+    const spreadsheetMutations = ['append_spreadsheet_rows', 'update_spreadsheet_range', 'update_spreadsheet_rows_by_key', 'upsert_spreadsheet_rows', 'create_spreadsheet', 'create_spreadsheet_sheet'];
+    const write = ['/changes/write', '/changes/apply', '/changes/revert'].includes(path)
+      || (path.startsWith('/spreadsheets/') && spreadsheetMutations.includes(path.split('/')[2]));
+    if (!terminal && !write) return;
+    if (req.headers['x-local-approval-execution'] === internalExecutionKey) return;
+    const kind: AccessKind = terminal ? 'terminal' : 'fileWrites';
+    // Only locally approved execution may bypass the gate. This is private to the server instance.
+    const body = req.body as any;
+    try {
+      // Display the complete submitted operation locally; never approve an unseen suffix.
+      const serialized = JSON.stringify(body ?? {});
+      if (serialized.length > 128 * 1024) {
+        return reply.status(413).send({ ok: false, error: 'Approval payload exceeds 128 KiB; split the operation into smaller changes' });
+      }
+      const result = access.submit(kind, path, body?.workspaceId || '', path + ' requested', {
+        relativePath: String(body?.relativePath || ''),
+        command: String(body?.command || ''),
+        payload: serialized
+      }, async () => {
+        const response = await app.inject({ method: 'POST', url: path, headers: {
+          authorization: 'Bearer ' + tokenRef.value,
+          'x-local-approval-execution': internalExecutionKey
+        }, payload: body });
+        const data = response.json();
+        if (response.statusCode >= 400 || !data.ok) throw new Error(data.error || 'Execution failed');
+        return data.data;
+      });
+      if (result && typeof (result as any).then === 'function') {
+        const data = await (result as Promise<unknown>);
+        return reply.send({ ok: true, data });
+      }
+      return reply.status(202).send({ ok: true, data: { approvalRequired: true, ...(result as object) } });
+    } catch (e) { return reply.status(403).send({ ok: false, error: String(e) }); }
+  });
+
   app.get('/health', async () => ({
     ok: true,
     data: { status: 'running', version: '0.2.0', timestamp: new Date().toISOString() },

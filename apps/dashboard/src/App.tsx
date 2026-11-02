@@ -7,6 +7,7 @@ import DiffPage from './pages/DiffPage';
 import PendingPage from './pages/PendingPage';
 import AuditPage from './pages/AuditPage';
 import SettingsPage from './pages/SettingsPage';
+import AccessPage from './pages/AccessPage';
 import TokenPage from './pages/TokenPage';
 
 type ApiStatus = 'checking' | 'online' | 'offline' | 'unauthorized';
@@ -97,6 +98,7 @@ export default function App() {
             { to: '/pending', label: 'Pending Changes' },
             { to: '/audit', label: 'Audit Log' },
             { to: '/settings', label: 'Settings' },
+            { to: '/access', label: 'Access Control' },
           ].map(({ to, label }) => (
             <NavLink
               key={to}
@@ -136,6 +138,7 @@ export default function App() {
           <Route path="/pending" element={<PendingPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/access" element={<AccessPage />} />
         </Routes>
       </main>
     </div>

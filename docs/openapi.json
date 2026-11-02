@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "ChatGPT PC File Bridge",
+    "title": "PC File Bridge",
     "version": "0.2.0",
     "description": "Localhost-only bridge for controlled, approval-gated file edits on registered project folders. In production this sits behind a cloud relay — ChatGPT never calls localhost directly."
   },

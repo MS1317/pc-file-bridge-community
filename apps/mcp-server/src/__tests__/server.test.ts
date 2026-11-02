@@ -9,6 +9,7 @@ const TEST_TOKEN = 'a'.repeat(64);
 
 const mockBridgeApi: BridgeApiClient = {
   health: jest.fn().mockResolvedValue({ status: 'running' }),
+  approvalStatus: jest.fn().mockResolvedValue({ approvalId: 'test', state: 'approved' }),
   listWorkspaces: jest.fn().mockResolvedValue([]),
   listFiles: jest.fn().mockResolvedValue([]),
   searchFiles: jest.fn().mockResolvedValue([]),
@@ -240,9 +241,10 @@ describe('MCP tools/list', () => {
     'upsert_spreadsheet_rows',
     'create_spreadsheet',
     'create_spreadsheet_sheet',
+    'get_operation_approval',
   ];
 
-  it('tools/list includes all 32 tools', async () => {
+  it('tools/list includes all 33 tools', async () => {
     const res = await mcpPost(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, TEST_TOKEN);
     expect(res.statusCode).toBe(200);
     const parsed = JSON.parse(res.body);
@@ -555,7 +557,7 @@ describe('MCP path-token auth (/mcp/:token)', () => {
     );
     expect(res.statusCode).toBe(200);
     const parsed = JSON.parse(res.body);
-    expect(parsed.result.serverInfo.name).toBe('chatgpt-pc-file-bridge-mcp');
+    expect(parsed.result.serverInfo.name).toBe('pc-file-bridge-mcp');
   });
 
   it('POST /mcp/<correct-token> tools/list returns all tools', async () => {
@@ -567,7 +569,7 @@ describe('MCP path-token auth (/mcp/:token)', () => {
     expect(res.statusCode).toBe(200);
     const parsed = JSON.parse(res.body);
     expect(Array.isArray(parsed.result.tools)).toBe(true);
-    expect(parsed.result.tools.length).toBe(32);
+    expect(parsed.result.tools.length).toBe(33);
   });
 
   it('GET /mcp/<correct-token> returns 405', async () => {
