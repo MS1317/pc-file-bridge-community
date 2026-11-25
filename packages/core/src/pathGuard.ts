@@ -68,7 +68,8 @@ function checkAncestorSymlinks(normalizedRoot: string, targetPath: string): void
  */
 export function resolveAndGuard(workspaceRoot: string, relativePath: string): string {
   // Reject absolute paths immediately (covers both POSIX /etc and Windows C:\)
-  if (path.isAbsolute(relativePath)) {
+  // in both forms on every OS
+  if (path.posix.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath)) {
     throw new PathGuardError(
       `Absolute paths are not allowed: ${relativePath}`,
       'ABSOLUTE_PATH'

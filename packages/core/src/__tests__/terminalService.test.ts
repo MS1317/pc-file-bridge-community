@@ -63,7 +63,8 @@ describe('TerminalService', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.relativeCwd).toBe('nested');
-    expect(result.stdout.trim()).toBe(`${path.join(workspaceRoot, 'nested')}|missing`);
+    // The temporary directory is behind a link on macOS
+    expect(result.stdout.trim()).toBe(`${fs.realpathSync(path.join(workspaceRoot, 'nested'))}|missing`);
     expect(new AuditLog(dataDir).readRecent(1)[0]).toMatchObject({
       action: 'terminal_command',
       workspaceId: workspace.id,
