@@ -3,6 +3,7 @@ import path from 'path';
 import { nanoid } from 'nanoid';
 import type { Workspace, WorkspaceInput, WorkspacePolicyUpdate } from '@bridge/shared';
 import { DEFAULT_BLOCKED_GLOBS } from './globFilter';
+import { canonicalPath } from './workspaceAccess';
 
 const DEFAULT_ALLOWED_GLOBS = [
   '**/*.ts',
@@ -23,10 +24,15 @@ const DEFAULT_ALLOWED_GLOBS = [
   '**/*.txt',
   '**/*.svg',
   '**/*.xlsx',
+  // Other common source languages
+  '**/*.{py,pyi,go,rs,java,kt,kts,scala,cs,fs,c,h,cc,cpp,hpp,swift,rb,php,lua,dart,ex,exs}',
+  '**/*.{vue,svelte,astro,less,sql,graphql,proto,sh,ps1,xml,gradle}',
+  '**/{Dockerfile,Makefile,.gitignore,.editorconfig}',
 ];
 
 export class WorkspaceRegistry {
   private registryPath: string;
+  private readonly dataDir: string;
   // Cache parsed workspaces, keyed by file mtime so a hand-edit of
   // workspaces.json is still picked up. Every API request used to re-read and
   // re-parse this file; now it only re-reads when the file actually changes.
@@ -34,6 +40,7 @@ export class WorkspaceRegistry {
   private cacheMtimeMs = 0;
 
   constructor(dataDir: string) {
+    this.dataDir = dataDir;
     this.registryPath = path.join(dataDir, 'workspaces.json');
     this.ensureFile();
   }
@@ -60,7 +67,26 @@ export class WorkspaceRegistry {
   }
 
   get(id: string): Workspace | null {
-    return this.list().find((w) => w.id === id) ?? null;
+    const workspace = this.list().find((w) => w.id === id);
+    if (!workspace) return null;
+    const protectedGlobs = this.protectedGlobs(workspace.root);
+    return protectedGlobs.length === 0
+      ? workspace
+      : { ...workspace, blockedGlobs: [...workspace.blockedGlobs, ...protectedGlobs] };
+  }
+
+  /**
+   * Keeps the bridge's own tokens, policy and backups out of reach of file tools
+   * when a workspace contains the data directory. Computed on every read and not
+   * persisted, so editing a workspace's globs cannot remove it.
+   */
+  private protectedGlobs(root: string): string[] {
+    const dataDir = canonicalPath(this.dataDir);
+    const workspaceRoot = canonicalPath(root);
+    if (isInside(workspaceRoot, dataDir)) return ['**'];
+    if (!isInside(dataDir, workspaceRoot)) return [];
+    const relative = escapeGlob(path.relative(workspaceRoot, dataDir).split(path.sep).join('/'));
+    return [relative, `${relative}/**`];
   }
 
   add(input: WorkspaceInput): Workspace {
@@ -77,6 +103,9 @@ export class WorkspaceRegistry {
     }
 
     const normalized = path.resolve(input.root);
+    if (isInside(canonicalPath(normalized), canonicalPath(this.dataDir))) {
+      throw new Error('The bridge data directory cannot be registered as a workspace');
+    }
 
     // Prevent duplicate roots
     if (workspaces.some((w) => path.resolve(w.root) === normalized)) {
@@ -133,6 +162,15 @@ export class WorkspaceRegistry {
     this.cache = null;
     this.cacheMtimeMs = 0;
   }
+}
+
+function isInside(candidate: string, directory: string): boolean {
+  const relative = path.relative(directory, candidate);
+  return relative === '' || (relative.split(path.sep)[0] !== '..' && !path.isAbsolute(relative));
+}
+
+function escapeGlob(value: string): string {
+  return value.replace(/[\\$^*+?()[\]{}|!@]/g, '\\$&');
 }
 
 function normalizeGlobPatterns(patterns: string[], field: string): string[] {

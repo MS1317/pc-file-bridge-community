@@ -11,7 +11,7 @@ import {
   type HeartbeatMessage,
   type RelayResponseMessage,
   type RelayErrorMessage,
-} from 'shared';
+} from '@bridge/shared';
 import {
   registerDevice,
   unregisterDevice,
@@ -19,7 +19,7 @@ import {
   getDevice,
   listDevices,
   findDeviceBySessionId,
-} from './deviceRegistry.js';
+} from './deviceRegistry';
 
 export interface RelayServerOptions {
   relayClientToken: string;
@@ -103,7 +103,7 @@ export async function buildRelayServer(opts: RelayServerOptions): Promise<{
   fastify.get('/health', async () => ({
     ok: true,
     service: 'relay-server',
-    version: '0.1.0',
+    version: '0.2.0',
     connectedDevices: listDevices().filter((d) => d.connected).length,
   }));
 
@@ -160,6 +160,7 @@ export async function buildRelayServer(opts: RelayServerOptions): Promise<{
         });
       }
 
+      const deviceSocket = device.ws;
       const requestId = randomUUID();
       const nonce = randomUUID();
       const createdAt = new Date().toISOString();
@@ -178,7 +179,7 @@ export async function buildRelayServer(opts: RelayServerOptions): Promise<{
 
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
-          device.ws.removeListener('message', onMessage);
+          deviceSocket.removeListener('message', onMessage);
           resolve(reply.code(504).send({
             ok: false,
             error: 'Device timed out',
@@ -200,7 +201,7 @@ export async function buildRelayServer(opts: RelayServerOptions): Promise<{
             msg.requestId === requestId
           ) {
             clearTimeout(timer);
-            device.ws.removeListener('message', onMessage);
+            deviceSocket.removeListener('message', onMessage);
 
             if (msg.type === 'response') {
               const resp = msg as RelayResponseMessage;
@@ -212,8 +213,8 @@ export async function buildRelayServer(opts: RelayServerOptions): Promise<{
           }
         }
 
-        device.ws.on('message', onMessage);
-        device.ws.send(JSON.stringify(relayReq));
+        deviceSocket.on('message', onMessage);
+        deviceSocket.send(JSON.stringify(relayReq));
       });
     },
   );

@@ -9,14 +9,32 @@ function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-export function loadOrCreateToken(dataDir: string): string {
-  const tokenPath = path.join(dataDir, TOKEN_FILE);
-  if (fs.existsSync(tokenPath)) {
-    return fs.readFileSync(tokenPath, 'utf8').trim();
+/**
+ * Reads a secret from the data directory, creating both on first run. The API
+ * and MCP server start together, so exclusive create decides which of them
+ * writes the file and the other one reads that value.
+ */
+export function loadOrCreateSecret(dataDir: string, fileName: string): string {
+  const secretPath = path.join(dataDir, fileName);
+  fs.mkdirSync(dataDir, { recursive: true });
+  try {
+    const secret = generateToken();
+    fs.writeFileSync(secretPath, secret, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    return secret;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
   }
-  const token = generateToken();
-  fs.writeFileSync(tokenPath, token, { encoding: 'utf8', mode: 0o600 });
-  return token;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const secret = fs.readFileSync(secretPath, 'utf8').trim();
+    if (secret) return secret;
+    // The other process has created the file but not written it yet.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
+  throw new Error(`${secretPath} is empty. Delete it and start the bridge again.`);
+}
+
+export function loadOrCreateToken(dataDir: string): string {
+  return loadOrCreateSecret(dataDir, TOKEN_FILE);
 }
 
 /**
@@ -32,13 +50,7 @@ export function rotateToken(dataDir: string): string {
 }
 
 export function loadOrCreateMcpRemoteToken(dataDir: string): string {
-  const tokenPath = path.join(dataDir, MCP_REMOTE_TOKEN_FILE);
-  if (fs.existsSync(tokenPath)) {
-    return fs.readFileSync(tokenPath, 'utf8').trim();
-  }
-  const token = crypto.randomBytes(32).toString('hex');
-  fs.writeFileSync(tokenPath, token, { encoding: 'utf8', mode: 0o600 });
-  return token;
+  return loadOrCreateSecret(dataDir, MCP_REMOTE_TOKEN_FILE);
 }
 
 export function rotateMcpRemoteToken(dataDir: string): string {

@@ -20,7 +20,7 @@ async function main() {
 
   const isExposed = !isLocalhost(HOST);
 
-  // Load or generate MCP remote token (ChatGPT-facing; separate from internal bridge API token)
+  // Load or generate MCP remote token (client-facing; separate from internal bridge API token)
   const mcpToken = process.env.MCP_REMOTE_TOKEN?.trim() || loadOrCreateMcpRemoteToken(DATA_DIR);
 
   // ── Startup safety guard ────────────────────────────────────────────────────
@@ -51,13 +51,13 @@ async function main() {
 
   console.log('');
   console.log('==============================================');
-  console.log(' PC File Bridge MCP v0.1.0');
+  console.log(' PC File Bridge MCP v0.2.0');
   console.log('==============================================');
   console.log(` MCP endpoint : http://${HOST}:${PORT}/mcp`);
   console.log(` Health       : http://${HOST}:${PORT}/health`);
   console.log(` Bridge API   : ${BRIDGE_API_URL}`);
   console.log(` MCP auth     : loaded from ${tokenSource}`);
-  console.log(` MCP tools    : read / search / preview / apply / terminal enabled`);
+  console.log(` MCP tools    : writes and terminal follow Dashboard > Access Control`);
   console.log('==============================================');
   console.log('');
 }

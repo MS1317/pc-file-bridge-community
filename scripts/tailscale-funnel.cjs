@@ -36,6 +36,28 @@ function runTailscale(args, spawnImpl = spawnSync) {
   }
 }
 
+/** Who owns an HTTPS port: 'free', 'ours', or 'other' when another app is published on it. */
+function portOwner(port, spawnImpl = spawnSync) {
+  const result = spawnImpl('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8', shell: false, windowsHide: true });
+  if (result.error?.code === 'ENOENT') {
+    throw new Error('Tailscale CLI was not found. Install and sign in to Tailscale, then make sure `tailscale` is available on PATH.');
+  }
+  let config;
+  try {
+    if (result.error || result.status !== 0) throw new Error('failed');
+    config = JSON.parse(result.stdout.trim() || '{}') ?? {};
+  } catch {
+    throw new Error('Could not read the current Tailscale Serve configuration. Is Tailscale running and signed in?');
+  }
+  if (!config.TCP?.[port]) return 'free';
+  const handlers = Object.entries(config.Web ?? {})
+    .filter(([host]) => host.endsWith(':' + port))
+    .flatMap(([, web]) => Object.entries(web.Handlers ?? {}));
+  // Funnel applies to the whole port, so any other path on it would become public too.
+  const ours = handlers.length > 0 && handlers.every(([path, handler]) => path === '/' && handler.Proxy === MCP_TARGET);
+  return ours ? 'ours' : 'other';
+}
+
 async function startFunnel({ fetchImpl = globalThis.fetch, spawnImpl = spawnSync, output, httpsPort } = {}) {
   const port = getHttpsPort(httpsPort);
   let response;
@@ -60,6 +82,10 @@ async function startFunnel({ fetchImpl = globalThis.fetch, spawnImpl = spawnSync
     throw new Error('MCP or bridge-api is not healthy. Start both local services and pass `pnpm preflight:mcp` before opening a tunnel.');
   }
 
+  if (portOwner(port, spawnImpl) === 'other') {
+    throw new Error('Tailscale already publishes another app on HTTPS port ' + port + '. Set TAILSCALE_HTTPS_PORT to a free port (443, 8443 or 10000). Run `pnpm tunnel:tailscale:status` to see what is in use.');
+  }
+
   // This exact target keeps bridge-api (4777) and the dashboard (4778) local.
   runTailscale(['funnel', '--https=' + port, '--bg', MCP_TARGET], spawnImpl);
   report('Tailscale Funnel is enabled for the MCP server on HTTPS port ' + port + ' only.', output);
@@ -72,6 +98,14 @@ function showStatus({ spawnImpl = spawnSync } = {}) {
 
 function stopFunnel({ spawnImpl = spawnSync, output, httpsPort } = {}) {
   const port = getHttpsPort(httpsPort);
+  const owner = portOwner(port, spawnImpl);
+  if (owner === 'free') {
+    report('Tailscale Funnel is not running on HTTPS port ' + port + '.', output);
+    return;
+  }
+  if (owner === 'other') {
+    throw new Error('HTTPS port ' + port + ' belongs to another app, so it was left alone. Set TAILSCALE_HTTPS_PORT to the port you used to start the tunnel.');
+  }
   // Tailscale requires the original flags and target for the matching `off` command.
   runTailscale(['funnel', '--https=' + port, '--bg', MCP_TARGET, 'off'], spawnImpl);
   report('Tailscale Funnel on HTTPS port ' + port + ' has been turned off.', output);

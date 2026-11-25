@@ -12,7 +12,8 @@ import type {
   RepoOverview,
 } from '@bridge/shared';
 import { resolveAndGuard, toRelative } from './pathGuard';
-import { checkGlobAccess, DEFAULT_BLOCKED_GLOBS, matchesAny } from './globFilter';
+import { canonicalPath, resolveWorkspacePath } from './workspaceAccess';
+import { checkGlobAccess, DEFAULT_BLOCKED_GLOBS, matchesAny, matchesAnyBlocked, matchesBridgeIgnore } from './globFilter';
 import { hashContent } from './fileHash';
 import { loadBridgeIgnore } from './bridgeIgnore';
 import { isSpreadsheetPath } from '@bridge/shared';
@@ -110,13 +111,7 @@ export class FileService {
   }
 
   readFile(workspace: Workspace, relativePath: string): FileContent {
-    const ignorePatterns = loadBridgeIgnore(workspace.root);
-    const check = checkGlobAccess(relativePath, workspace, ignorePatterns);
-    if (!check.allowed) {
-      throw new Error(`Access denied: ${check.reason}`);
-    }
-
-    const absPath = resolveAndGuard(workspace.root, relativePath);
+    const absPath = resolveWorkspacePath(workspace, relativePath);
 
     if (isSpreadsheetPath(relativePath)) {
       throw new Error('Spreadsheet files must be read with spreadsheet actions');
@@ -151,9 +146,10 @@ export class FileService {
     const startDir = relativePath
       ? resolveAndGuard(workspace.root, relativePath)
       : workspace.root;
+    const relBase = relativePath ? path.relative(canonicalPath(workspace.root), canonicalPath(startDir)) : '';
 
     const counter = { count: 0 };
-    const tree = this.walkTree(workspace.root, startDir, relativePath, workspace, ignorePatterns, 0, safeMaxDepth, counter, safeLimit);
+    const tree = this.walkTree(workspace.root, startDir, relBase, workspace, ignorePatterns, 0, safeMaxDepth, counter, safeLimit);
     return {
       workspaceId: workspace.id,
       relativePath,
@@ -229,13 +225,7 @@ export class FileService {
     startLine: number,
     endLine: number
   ): FileRangeContent {
-    const ignorePatterns = loadBridgeIgnore(workspace.root);
-    const check = checkGlobAccess(relativePath, workspace, ignorePatterns);
-    if (!check.allowed) {
-      throw new Error(`Access denied: ${check.reason}`);
-    }
-
-    const absPath = resolveAndGuard(workspace.root, relativePath);
+    const absPath = resolveWorkspacePath(workspace, relativePath);
 
     if (isSpreadsheetPath(relativePath)) {
       throw new Error('Spreadsheet files must be read with spreadsheet actions');
@@ -382,9 +372,9 @@ export class FileService {
     bridgeIgnorePatterns: string[]
   ): boolean {
     const probe = relPath.replace(/\\/g, '/') + '/dummy';
-    if (matchesAny(probe, DEFAULT_BLOCKED_GLOBS)) return true;
-    if (matchesAny(probe, bridgeIgnorePatterns)) return true;
-    if (matchesAny(probe, workspace.blockedGlobs)) return true;
+    if (matchesAnyBlocked(probe, DEFAULT_BLOCKED_GLOBS)) return true;
+    if (matchesBridgeIgnore(probe, bridgeIgnorePatterns)) return true;
+    if (matchesAnyBlocked(probe, workspace.blockedGlobs)) return true;
     return false;
   }
 
@@ -396,9 +386,9 @@ export class FileService {
     if (patterns.length === 0) return false;
     const normalized = relPath.replace(/\\/g, '/');
     // Match dir path itself (e.g., pattern "my-output" matches dir "my-output")
-    if (matchesAny(normalized, patterns)) return true;
+    if (matchesBridgeIgnore(normalized, patterns)) return true;
     // Match contents — if "my-output/**" would block files inside, skip the dir
-    if (matchesAny(normalized + '/dummy', patterns)) return true;
+    if (matchesBridgeIgnore(normalized + '/dummy', patterns)) return true;
     return false;
   }
 }

@@ -1,20 +1,22 @@
 # Contributing
 
-PC File Bridge accepts focused bug fixes, tests, documentation improvements, and security hardening.
+Focused bug fixes, tests, documentation improvements and security hardening are welcome. For larger changes, open an issue first.
 
 ## Local development
 
-1. Install Node.js 20 or newer and enable Corepack.
-2. Run `corepack pnpm install --frozen-lockfile`.
-3. Run `corepack pnpm build` and `corepack pnpm test`.
-4. Send a pull request describing the change, security impact, and tests.
+1. Install Node.js (20.19+ or 22.12+) and pnpm 9: `npm install -g pnpm@9`
+2. `pnpm install --frozen-lockfile`
+3. `pnpm build`, `pnpm typecheck` and `pnpm test`
+4. With ports 4777 to 4779 free, `pnpm bridge:smoke` starts the bridge and runs the preflight, as CI does
+5. Open a pull request that describes the change, its security impact and how you tested it
 
 ## Safety requirements
 
-- Never commit runtime data, tokens, logs, credentials, workspace registries, or local device identifiers.
-- Preserve server-side authorization checks for every MCP tool, including direct calls.
-- Keep write and terminal execution disabled by default.
-- Do not weaken path traversal, symlink, or glob protections.
-- Add regression tests for security-sensitive changes.
+- Never commit runtime data, tokens, logs, credentials, workspace registries or personal paths.
+- Keep write and terminal capabilities off by default, and enforce them in the Bridge API rather than in a client.
+- Resolve file paths with `resolveWorkspacePath()`. Do not call `resolveAndGuard()` alone from a new file tool.
+- Decide on permissions from the matched route, never from the raw URL.
+- Add a regression test for every security-sensitive change.
+- Update the docs in the same pull request when behavior changes.
 
-Report vulnerabilities privately; see SECURITY.md.
+Report vulnerabilities privately. See [SECURITY.md](SECURITY.md).

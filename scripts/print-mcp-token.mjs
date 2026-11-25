@@ -23,7 +23,7 @@ if (!fs.existsSync(tokenPath)) {
 const token = fs.readFileSync(tokenPath, 'utf8').trim();
 
 console.log('');
-console.log('MCP Remote Token (paste into MCP client MCP configuration):');
+console.log('MCP Remote Token (paste into your MCP client configuration):');
 console.log('');
 console.log(token);
 console.log('');

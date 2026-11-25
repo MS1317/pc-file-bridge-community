@@ -3,8 +3,6 @@ import { buildServer, createToolDefinitions } from '../server';
 import { BridgeApiError, type BridgeApiClient } from '../bridgeApiClient';
 import { TERMINAL_EXECUTION_POLICY } from '@bridge/shared';
 
-process.env.MCP_ENABLE_WRITES = 'true';
-process.env.MCP_ENABLE_TERMINAL = 'true';
 const TEST_TOKEN = 'a'.repeat(64);
 
 const mockBridgeApi: BridgeApiClient = {
@@ -558,6 +556,27 @@ describe('MCP path-token auth (/mcp/:token)', () => {
     expect(res.statusCode).toBe(200);
     const parsed = JSON.parse(res.body);
     expect(parsed.result.serverInfo.name).toBe('pc-file-bridge-mcp');
+  });
+
+  it.each([
+    ['2025-11-25', '2025-11-25'],
+    ['2025-06-18', '2025-06-18'],
+    ['2025-03-26', '2025-03-26'],
+    ['2024-11-05', '2024-11-05'],
+    ['1999-01-01', '2025-11-25'],
+    [undefined, '2025-11-25'],
+  ])('answers initialize for protocol %s with %s', async (requested, expected) => {
+    const res = await mcpPostPath(
+      app,
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: requested } },
+      TEST_TOKEN
+    );
+    expect(JSON.parse(res.body).result.protocolVersion).toBe(expected);
+  });
+
+  it('answers ping', async () => {
+    const res = await mcpPostPath(app, { jsonrpc: '2.0', id: 1, method: 'ping' }, TEST_TOKEN);
+    expect(JSON.parse(res.body).result).toEqual({});
   });
 
   it('POST /mcp/<correct-token> tools/list returns all tools', async () => {

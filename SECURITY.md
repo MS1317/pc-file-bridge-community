@@ -1,11 +1,17 @@
 # Security policy
 
+## Supported versions
+
+Fixes go into the latest release and `main`.
+
 ## Report a vulnerability
 
-Do not publish exploitable security details in a GitHub issue. Contact the maintainers privately through GitHub or use private vulnerability reporting when available. Include affected versions, a minimal reproduction, impact, and suggested mitigation.
+Please do not open a public issue. Use **Security → Report a vulnerability** on the [GitHub repository](https://github.com/MS1317/pc-file-bridge-community/security/advisories/new) to send a private report. Include the version or commit, steps to reproduce, the impact, and a suggested fix if you have one.
 
-## Scope and limitations
+## Scope
 
-File-access controls apply to bridge file tools. Shell commands are not an OS sandbox and run with the local users privileges. MCP write tools require MCP_ENABLE_WRITES=true, and terminal tools additionally require MCP_ENABLE_TERMINAL=true. Publicly tunneled endpoints require strong authentication and careful token handling.
+In scope: bypassing authentication, permissions, approvals, or file rules; reading or writing outside registered workspaces through file tools; exposing the bridge's tokens.
 
-See docs/SECURITY.md for the complete threat model.
+Out of scope, by design: anything a terminal command can do once you enable the terminal (commands are not sandboxed), and anything that requires an attacker who already runs code as your user.
+
+The full threat model is in [docs/SECURITY.md](docs/SECURITY.md).

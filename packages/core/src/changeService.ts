@@ -9,9 +9,7 @@ import type {
   ReplaceRangeRequest,
   InsertLineRequest,
 } from '@bridge/shared';
-import { resolveAndGuard } from './pathGuard';
-import { checkGlobAccess } from './globFilter';
-import { loadBridgeIgnore } from './bridgeIgnore';
+import { resolveWorkspacePath } from './workspaceAccess';
 import { hashBuffer, hashContent } from './fileHash';
 import { createUnifiedDiff } from './diffUtil';
 import type { AuditLog } from './auditLog';
@@ -34,13 +32,7 @@ export class ChangeService {
     const { relativePath, newContent, baseHash } = request;
     const warnings: string[] = [];
 
-    const ignorePatterns = loadBridgeIgnore(workspace.root);
-    const check = checkGlobAccess(relativePath, workspace, ignorePatterns);
-    if (!check.allowed) {
-      throw new Error(`Access denied: ${check.reason}`);
-    }
-
-    const absPath = resolveAndGuard(workspace.root, relativePath);
+    const absPath = resolveWorkspacePath(workspace, relativePath);
     const fileExists = fs.existsSync(absPath);
 
     let oldContent = '';
@@ -49,20 +41,21 @@ export class ChangeService {
     if (fileExists) {
       oldContent = fs.readFileSync(absPath, 'utf8');
       oldHash = hashContent(oldContent);
+    }
 
-      if (baseHash && oldHash !== baseHash) {
-        warnings.push(
-          `Hash mismatch: file has changed since base hash was captured. ` +
-            `Provided: ${baseHash.slice(0, 8)}… Current: ${oldHash.slice(0, 8)}…`
-        );
-      }
+    if (baseHash && oldHash !== baseHash) {
+      warnings.push(
+        `Hash mismatch: file has changed since base hash was captured. ` +
+          `Provided: ${baseHash.slice(0, 8)}… Current: ${oldHash ? oldHash.slice(0, 8) + '…' : 'file does not exist'}`
+      );
     }
 
     const newHash = hashContent(newContent);
     const diff = createUnifiedDiff(relativePath, oldContent, newContent);
 
     const pending = this.pendingStore.create(
-      { workspaceId: workspace.id, relativePath, baseHash: oldHash, newHash, diff, reason: request.reason, warnings },
+      // Keep the caller's hash when given, so a stale preview can be read but never applied.
+      { workspaceId: workspace.id, relativePath, baseHash: baseHash || oldHash, newHash, diff, reason: request.reason, warnings },
       newContent
     );
 
@@ -74,7 +67,7 @@ export class ChangeService {
       newHash,
       diff,
       warnings,
-      safe: true,
+      safe: warnings.length === 0,
       fileExists,
       expiresAt: pending.expiresAt,
     };
@@ -132,11 +125,7 @@ export class ChangeService {
 
   // Shared read + access-check for targeted edit methods.
   private _readForEdit(workspace: Workspace, relativePath: string): { oldContent: string } {
-    const ignorePatterns = loadBridgeIgnore(workspace.root);
-    const check = checkGlobAccess(relativePath, workspace, ignorePatterns);
-    if (!check.allowed) throw new Error(`Access denied: ${check.reason}`);
-
-    const absPath = resolveAndGuard(workspace.root, relativePath);
+    const absPath = resolveWorkspacePath(workspace, relativePath);
     if (!fs.existsSync(absPath)) throw new Error(`File not found: ${relativePath}`);
 
     const stat = fs.statSync(absPath);
@@ -144,6 +133,10 @@ export class ChangeService {
 
     const oldContent = fs.readFileSync(absPath, 'utf8');
     if (oldContent.includes('\0')) throw new Error(`Binary files cannot be edited: ${relativePath}`);
+    // Rewriting the untouched lines of another encoding would corrupt them.
+    if (!Buffer.from(oldContent, 'utf8').equals(fs.readFileSync(absPath))) {
+      throw new Error(`Only UTF-8 files can be edited: ${relativePath}`);
+    }
 
     return { oldContent };
   }
@@ -180,7 +173,7 @@ export class ChangeService {
   /**
    * Preview + apply in a single call. Same glob/path/hash/backup/audit guards as
    * the two-step flow — it just composes preview() and applyPending() so a remote
-   * caller (ChatGPT over the tunnel) spends one round trip instead of two.
+   * caller (an MCP client over a tunnel) spends one round trip instead of two.
    * Throws on stale baseHash via applyPending, same as the two-step path.
    */
   applyImmediate(workspace: Workspace, request: ChangePreviewRequest): ApplyChangeResult {
@@ -213,35 +206,24 @@ export class ChangeService {
 
     const { relativePath, reason } = pending;
 
-    // Re-validate access (workspace config may have changed)
-    const check = checkGlobAccess(relativePath, workspace);
-    if (!check.allowed) throw new Error(`Access denied: ${check.reason}`);
-
-    // Re-run path guard (apply time, not just preview time)
-    const absPath = resolveAndGuard(workspace.root, relativePath);
+    // Re-validate at apply time: rules or links may have changed since preview
+    const absPath = resolveWorkspacePath(workspace, relativePath);
     const fileExists = fs.existsSync(absPath);
 
-    let oldContent = '';
-    let oldHash: string | null = null;
+    // Back up the exact bytes: text in another encoding does not survive a decode and re-encode.
+    const oldBuffer = fileExists ? fs.readFileSync(absPath) : null;
+    const oldContent = oldBuffer ? oldBuffer.toString('utf8') : '';
+    const oldHash = oldBuffer ? hashContent(oldContent) : null;
 
-    if (fileExists) {
-      oldContent = fs.readFileSync(absPath, 'utf8');
-      oldHash = hashContent(oldContent);
-
-      // Re-check hash — file may have changed between preview and apply
-      if (pending.baseHash && oldHash !== pending.baseHash) {
-        throw new Error(
-          `Hash mismatch: file changed between preview and apply. ` +
-            `Create a new preview to see the current diff.`
-        );
-      }
+    // The file may have been changed, created or deleted between preview and apply
+    if (oldHash !== pending.baseHash) {
+      throw new Error(
+        `Hash mismatch: file changed between preview and apply. ` +
+          `Create a new preview to see the current diff.`
+      );
     }
 
-    const backupId = this.backups.create(
-      workspace.id,
-      relativePath,
-      fileExists ? Buffer.from(oldContent, 'utf8') : null
-    );
+    const backupId = this.backups.create(workspace.id, relativePath, oldBuffer);
 
     writeFileAtomically(absPath, Buffer.from(newContent, 'utf8'));
 
@@ -289,7 +271,7 @@ export class ChangeService {
 
     const backup = this.backups.read(entry.backupId, entry.relativePath);
     const backupContent = backup.content;
-    const absPath = resolveAndGuard(workspace.root, entry.relativePath);
+    const absPath = resolveWorkspacePath(workspace, entry.relativePath);
 
     let currentBuffer = Buffer.alloc(0);
     let currentHash: string | null = null;

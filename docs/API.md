@@ -2,13 +2,26 @@
 
 Base URL: `http://127.0.0.1:4777`
 
-All endpoints (except `/health`) require:
+All endpoints except `/health` require the token from `data/auth-token.txt`:
 ```
 Authorization: Bearer <token>
-Content-Type: application/json
 ```
 
-All responses are `{ ok: true, data: ... }` or `{ ok: false, error: "..." }`.
+Send `Content-Type: application/json` only when the request has a body. An empty body with that header is rejected.
+
+Responses are `{ "ok": true, "data": ... }` or `{ "ok": false, "error": "..." }`. Errors raised by the web framework itself, such as an unknown route or an oversized body, have `message` instead of `ok`.
+
+| Status | Meaning |
+|---|---|
+| `202` | Waiting for local approval. `data` has `approvalRequired` and `approvalId`. |
+| `400` | Invalid input, or the file rules denied access |
+| `401` | Missing or wrong token |
+| `403` | Capability disabled, or the local admin check failed |
+| `404` | Unknown workspace or route |
+| `413` | With approval on, payload and diff above 128 KiB. Always, body above 1 MiB |
+| `429` | More than 120 requests per minute. See `Retry-After`. |
+
+**Gated routes:** `/changes/write`, `/changes/apply`, `/changes/revert`, spreadsheet writes, and `/terminal/run`, `/start`, `/renew` and `/stop` follow the [access policy](#access-policy-and-approvals).
 
 ---
 
@@ -18,7 +31,7 @@ No auth required.
 
 ```json
 // Response
-{ "ok": true, "data": { "status": "running", "version": "0.1.0", "timestamp": "..." } }
+{ "ok": true, "data": { "status": "running", "version": "0.2.0", "timestamp": "..." } }
 ```
 
 ---
@@ -35,7 +48,7 @@ List all registered workspaces.
     {
       "id": "abc12345",
       "name": "My Project",
-      "root": "C:\Users\developer\Desktop\Dev\MyProject",
+      "root": "C:\\path\\to\\MyProject",
       "allowedGlobs": ["**/*.ts", "**/*.tsx"],
       "blockedGlobs": ["**/.env"],
       "writeMode": "approval_required",
@@ -53,12 +66,12 @@ Add a workspace.
 
 ```json
 // Request
-{ "name": "My Project", "root": "C:\Users\developer\Desktop\Dev\MyProject" }
+{ "name": "My Project", "root": "C:\\path\\to\\MyProject" }
 
 // Optional fields
 {
   "name": "My Project",
-  "root": "C:\...",
+  "root": "C:\\path\\to\\MyProject",
   "allowedGlobs": ["**/*.ts"],
   "blockedGlobs": ["**/.env"],
   "writeMode": "approval_required"
@@ -67,6 +80,10 @@ Add a workspace.
 // Response 201
 { "ok": true, "data": { "id": "abc12345", ... } }
 ```
+
+---
+
+`writeMode` is stored but not enforced. Approvals are controlled by the [access policy](#access-policy-and-approvals).
 
 ---
 
@@ -101,7 +118,7 @@ List all accessible files in a workspace (respects allowedGlobs/blockedGlobs).
   "data": [
     {
       "relativePath": "src/index.ts",
-      "absolutePath": "C:\...",
+      "absolutePath": "C:\\path\\to\\MyProject\\src\\index.ts",
       "sizeBytes": 1234,
       "modifiedAt": "2025-01-01T00:00:00.000Z"
     }
@@ -163,6 +180,17 @@ Read a file's content and hash.
   }
 }
 ```
+
+---
+
+## File navigation
+
+| Route | Body | Returns |
+|---|---|---|
+| `POST /files/tree` | `workspaceId`, optional `relativePath`, `maxDepth` (1-10, default 4), `limit` (1-2000, default 500) | Directory tree |
+| `POST /files/range` | `workspaceId`, `relativePath`, `startLine`, `endLine` (1-based, inclusive) | Those lines |
+| `POST /files/find` | `workspaceId`, `query`, optional `limit` (1-200, default 50) | Files whose path matches |
+| `POST /files/overview` | `workspaceId` | Summary of the workspace |
 
 ---
 
@@ -243,7 +271,7 @@ Supported `:action` values:
 
 Only `.xlsx` is implemented. The shared contract owns the request shapes, cell values (`string`, `number`, `boolean`, blank, date, and formula), A1 range parser, limits, schemas, and normalized failure codes. The provider accepts `/` and `\\` ZIP entry separators, canonicalizes them once, and rejects traversal-like, absolute-looking, or colliding package names as `workbook_invalid`.
 
-The MCP adapter marks inspect/read/search as read-only and spreadsheet mutations as destructive, so they use the existing ChatGPT permission prompt/approval flow. No spreadsheet-specific approval or absolute-path bypass is added.
+The MCP adapter marks inspect/read/search as read-only and spreadsheet mutations as destructive, and the same access policy and approvals apply as for other writes.
 
 Example inspection request:
 
@@ -275,7 +303,7 @@ Limits: 50 MiB workbook, 10,000 returned cells, 2,000 mutation rows, 200 search 
 
 ## POST /changes/preview
 
-Preview a proposed change without writing anything.
+Create a pending change and return its diff. Nothing is written. The pending change expires after 30 minutes.
 
 ```json
 // Request
@@ -291,6 +319,7 @@ Preview a proposed change without writing anything.
 {
   "ok": true,
   "data": {
+    "pendingChangeId": "p1a2b3c4",
     "workspaceId": "abc12345",
     "relativePath": "src/index.ts",
     "oldHash": "sha256hex or null if new file",
@@ -298,28 +327,23 @@ Preview a proposed change without writing anything.
     "diff": "--- original\n+++ modified\n@@ ... @@\n...",
     "warnings": [],
     "safe": true,
-    "fileExists": true
+    "fileExists": true,
+    "expiresAt": "2026-01-01T00:30:00.000Z"
   }
 }
 ```
 
-If `baseHash` doesn't match the current file's hash, a warning is added but the preview still returns (so you can see the conflict). The apply endpoint will reject mismatched hashes.
+If `baseHash` doesn't match the current file, the preview returns a warning and `safe: false`, and applying it is rejected. Applying is also rejected if the file was changed, created or deleted after the preview.
 
 ---
 
 ## POST /changes/apply
 
-Apply a change. Always creates a backup first.
+Apply a pending change. Always creates a backup first.
 
 ```json
-// Request (same shape as preview)
-{
-  "workspaceId": "abc12345",
-  "relativePath": "src/index.ts",
-  "newContent": "const x = 2;\n",
-  "baseHash": "optional-sha256",
-  "reason": "Fix typo"
-}
+// Request
+{ "workspaceId": "abc12345", "pendingChangeId": "p1a2b3c4" }
 
 // Response
 {
@@ -334,6 +358,32 @@ Apply a change. Always creates a backup first.
     "auditId": "xyz789abcdef"
   }
 }
+```
+
+---
+
+## POST /changes/write
+
+Preview and apply in one request. Takes the same body as `/changes/preview` and returns the same data as `/changes/apply`. A `baseHash` that does not match rejects the write.
+
+## Line-based previews
+
+Each creates a pending change and returns the same data as `/changes/preview`.
+
+| Route | Body |
+|---|---|
+| `POST /changes/replace-range` | `workspaceId`, `relativePath`, `startLine`, `endLine`, `newContent`, optional `reason` |
+| `POST /changes/insert-before` | `workspaceId`, `relativePath`, `line`, `content`, optional `reason` |
+| `POST /changes/insert-after` | `workspaceId`, `relativePath`, `line`, `content`, optional `reason` |
+
+## GET /changes/pending
+
+List pending changes.
+
+## POST /changes/reject
+
+```json
+{ "pendingChangeId": "p1a2b3c4" }
 ```
 
 ---
@@ -378,3 +428,29 @@ Revert a previous apply by its audit ID. Restores the file to pre-apply state.
 ```
 
 A revert itself is logged as a new `action: "revert"` entry in the audit log. In apply/revert results and audit entries, `newHash: null` means the resulting file is absent; the SHA-256 empty-file hash means a zero-byte file genuinely exists.
+
+---
+
+## Access policy and approvals
+
+Routes marked *admin* also need `X-Local-Admin-Token` from `data/local-admin-token.txt`, must come from this computer, and must be same-origin when sent by a browser.
+
+| Route | Admin | Purpose |
+|---|---|---|
+| `GET /access/policy` | | Current policy |
+| `PUT /access/policy` | Yes | Replace it. All three booleans are required. |
+| `GET /access/approvals` | Yes | List approval requests |
+| `GET /access/approvals/:id` | | Status and result of one request |
+| `POST /access/approvals/:id/approve` | Yes | Run the operation once. `409` if it is no longer pending. |
+| `POST /access/approvals/:id/reject` | Yes | Reject it |
+
+```json
+// PUT /access/policy
+{ "fileWrites": true, "terminal": false, "requireApproval": false }
+```
+
+---
+
+## POST /auth/rotate-token
+
+Replaces the API token and returns the new one as `data.newToken`. The old token stops working immediately.

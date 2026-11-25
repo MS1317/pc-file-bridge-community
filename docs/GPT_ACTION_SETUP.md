@@ -1,55 +1,17 @@
-# OpenAPI / GPT Actions Path (Alternate Route)
+# OpenAPI / GPT Actions (experimental)
 
-This is the alternate integration path. For DevSpace-style workflow replication, use the MCP Developer Mode path in `docs/MCP_DEVELOPER_MODE.md` first.
+> This path is unfinished. There is no hosted relay, so a GPT Action cannot reach your PC today. Use [MCP](CLIENT_CONNECTIONS.md) instead.
 
-## What this path is for
+What exists:
 
-`docs/openapi.json` describes the API that a custom ChatGPT Action can call to read and edit files on your PC.
-
-The OpenAPI route still works with the existing bridge-api, relay simulation, pending-change flow, backups, and audit log.
-
-## Important boundaries
-
-- Do not publish the localhost URL.
-- Do not point the GPT Action at localhost directly.
-- Keep bridge-api bound to `127.0.0.1`.
-- Keep the dashboard local-only.
-- Do not remove the existing relay simulation while MCP support is added.
-
-## How the relay-based path works
+- `docs/openapi.json` describes part of the Bridge API.
+- `docs/openapi-relay.json` describes the relay.
+- `apps/relay-server` and `apps/bridge-agent` run the flow on localhost. See [LOCAL_RELAY_SIMULATION.md](LOCAL_RELAY_SIMULATION.md).
 
 ```
-ChatGPT
-  -> Custom GPT Action
-  -> HTTPS relay or tunnel
-  -> local relay/client layer
-  -> bridge-api on 127.0.0.1:4777
-  -> approved workspace files
+GPT Action -> HTTPS relay (not provided) -> bridge-agent -> bridge-api 127.0.0.1:4777
 ```
 
-The relay is only an alternate transport. It does not change the safety logic inside `@bridge/core`.
+Do not point a GPT Action or a tunnel at the Bridge API. Keep 4777 and 4778 local.
 
-## What this path can do
-
-- Read workspace lists and file listings
-- Read file content
-- Search file contents
-- Create a pending change preview
-- Apply or reject a pending change
-- View recent audit entries
-- Revert a change
-
-## What this path must not do
-
-- Shell command execution
-- Workspace creation or deletion from remote
-- Raw filesystem access outside registered workspaces
-- Token rotation from remote
-- Direct file writes without a preview step
-
-## Security reminder
-
-- Every write goes through `preview -> apply`.
-- The relay or tunnel should add its own auth layer.
-- Rotate the bridge token before sharing any remote endpoint.
-- Monitor `data/audit-log.jsonl` for unexpected activity.
+The relay allows only these operations: list workspaces; list, search and read files; preview, list, apply and reject changes; view and revert history. Terminal, spreadsheets, workspace management and token rotation are not available through it. Writes follow the permissions in **Dashboard → Access Control**.

@@ -21,7 +21,8 @@ export default function SettingsPage() {
   }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(newToken);
+    try { await navigator.clipboard.writeText(newToken); }
+    catch { setError('Could not copy. Select the token and copy it by hand.'); return; }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

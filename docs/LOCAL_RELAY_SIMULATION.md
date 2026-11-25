@@ -1,164 +1,75 @@
-# Local Relay Simulation (Stage 2A)
+# Local relay simulation (experimental)
 
-This document explains how to run the full ChatGPT→relay→PC flow **entirely on localhost** for development and testing. Nothing is exposed to the internet.
+Runs the relay flow on localhost for development. Nothing is exposed to the internet, and MCP does not need it.
 
----
-
-## What's running
-
-| Process | Port | Purpose |
-|---------|------|---------|
-| `bridge-api` | `127.0.0.1:4777` | Actual file operations on registered workspaces |
-| `relay-server` | `127.0.0.1:4888` | Simulates the future cloud relay |
-| `bridge-agent` | (no port) | Outbound WS to relay; forwards requests to bridge-api |
-
----
-
-## Architecture (localhost simulation)
+| Process | Address | Purpose |
+|---|---|---|
+| `bridge-api` | `127.0.0.1:4777` | File operations |
+| `relay-server` | `127.0.0.1:4888` | Stands in for a future cloud relay |
+| `bridge-agent` | No port | Connects out to the relay and forwards requests to `bridge-api` |
 
 ```
-[Test client / curl / future GPT Action]
-         │  POST /gpt/request  (Bearer: relay client token)
-         ▼
-  relay-server  127.0.0.1:4888
-         │  WebSocket ws://127.0.0.1:4888/device
-         ▼
-  bridge-agent  (no inbound port)
-         │  HTTP  127.0.0.1:4777  (Bearer: local bridge token — NEVER sent to relay)
-         ▼
-  bridge-api  127.0.0.1:4777
-         │  filesystem
-         ▼
-  Registered workspace files
+client -> POST /gpt/request -> relay-server <- WebSocket - bridge-agent -> bridge-api
 ```
 
-Three auth layers:
+The relay never receives the Bridge API token.
 
-1. **GPT→relay**: `Authorization: Bearer <relay-client-token>` (relay knows this)
-2. **agent→relay**: HMAC-SHA256 device auth (relay knows `deviceId` + `deviceSecret`)
-3. **agent→bridge-api**: `Authorization: Bearer <local-bridge-token>` (**relay never sees this**)
+## Run it
 
----
+Use three terminals. The examples are PowerShell. In bash, replace `$env:NAME = 'value'` with `export NAME=value`.
 
-## Quick start
+**1. Bridge API**
 
-### Terminal 1 — bridge-api
-```sh
+```powershell
 pnpm api
-# Note the token printed at startup (or read data/auth-token.txt)
 ```
 
-### Terminal 2 — relay-server
-```sh
-# First run: let it generate a relay-client-token, then register your agent device
-AGENT_DEVICE_ID=<from agent startup> \
-AGENT_DEVICE_SECRET=<from data/agent/device-credentials.json> \
-pnpm relay
-```
+**2. Agent.** Start it once so it creates `data/agent/device-credentials.json`. It prints connection errors until the relay is up, and reconnects by itself.
 
-### Terminal 3 — bridge-agent
-```sh
-BRIDGE_TOKEN=<from bridge-api startup or data/auth-token.txt> \
+```powershell
+$env:BRIDGE_TOKEN = (Get-Content data/auth-token.txt -Raw).Trim()
 pnpm agent
 ```
 
-### Startup order
-Start bridge-api first so the agent can immediately check health. Start relay-server before the agent so the WebSocket is available.
+**3. Relay**, with the credentials from that file:
 
----
-
-## One-command dev mode
-
-```sh
-# Requires BRIDGE_TOKEN env var set first
-BRIDGE_TOKEN=<token> \
-AGENT_DEVICE_ID=<id> \
-AGENT_DEVICE_SECRET=<secret> \
-pnpm dev:relay-local
+```powershell
+$device = Get-Content data/agent/device-credentials.json -Raw | ConvertFrom-Json
+$env:AGENT_DEVICE_ID = $device.deviceId
+$env:AGENT_DEVICE_SECRET = $device.deviceSecret
+pnpm relay
 ```
 
----
+The relay saves its client token in `data/relay-client-token.txt`. Set `RELAY_CLIENT_TOKEN` to use your own.
 
-## Testing the relay
+## Try it
 
-Check relay health:
-```sh
-curl http://127.0.0.1:4888/health
+```powershell
+$token = (Get-Content data/relay-client-token.txt -Raw).Trim()
+$headers = @{ Authorization = "Bearer $token" }
+
+Invoke-RestMethod http://127.0.0.1:4888/health
+Invoke-RestMethod http://127.0.0.1:4888/devices -Headers $headers
+Invoke-RestMethod http://127.0.0.1:4888/gpt/request -Method Post -Headers $headers -ContentType application/json `
+  -Body (@{ deviceId = $device.deviceId; operation = 'workspaces.list' } | ConvertTo-Json)
 ```
 
-Check connected devices:
-```sh
-curl http://127.0.0.1:4888/devices
-```
+Only `/health` works without the client token.
 
-Send a request through the relay (simulates GPT Action):
-```sh
-curl -X POST http://127.0.0.1:4888/gpt/request \
-  -H "Authorization: Bearer <relay-client-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"deviceId":"<your-device-id>","operation":"workspaces.list"}'
-```
-
-Preview a file change:
-```sh
-curl -X POST http://127.0.0.1:4888/gpt/request \
-  -H "Authorization: Bearer <relay-client-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "deviceId":"<your-device-id>",
-    "operation":"changes.preview",
-    "body":{
-      "workspaceId":"<workspace-id>",
-      "relativePath":"README.md",
-      "newContent":"# New content\n",
-      "reason":"Test change via relay"
-    }
-  }'
-```
-
----
-
-## Security properties verified in this simulation
+## What it checks
 
 | Property | How |
-|----------|-----|
-| Local bridge token never sent to relay | Agent reads `BRIDGE_TOKEN` env var; relay never receives it |
-| Operations allowlisted at both relay and agent | `ALLOWED_OPERATIONS` checked twice |
-| Replay attacks blocked | Agent tracks seen `requestId` values for 2 minutes |
-| Method/path tampering caught | Agent validates `operation` spec matches `method`+`path` |
-| Stale requests rejected | Agent rejects requests >30s old |
-| Device heartbeat | Agent pings relay every 15s; relay marks device offline after 90s |
-| HMAC device auth | Relay verifies HMAC-SHA256 signature on connect |
-| Nonce replay on WS auth | Relay tracks seen nonces for 2 minutes |
-
----
-
-## What Stage 2B will add
-
-- Deploy relay-server to a cloud host (Cloudflare Worker, Railway, Fly.io)
-- Configure a Custom GPT Action pointing at the cloud relay URL
-- TLS everywhere (HTTPS/WSS)
-- Per-user session pairing (device code flow)
-- Persistent device registration (database instead of env vars)
-
-None of those changes affect the bridge-api or bridge-agent security model.
-
----
+|---|---|
+| Only known operations | Allowlist on the relay and again on the agent |
+| Device identity | HMAC-SHA256 signature, with nonce replay protection |
+| Stale or replayed requests | The agent rejects old requests and repeated request IDs |
+| Device offline | Heartbeat |
 
 ## Troubleshooting
 
-**Agent says `auth_fail: Invalid signature`**
-- Check `AGENT_DEVICE_ID` and `AGENT_DEVICE_SECRET` match the values in `data/agent/device-credentials.json`
-- The relay-server must have those values set via `AGENT_DEVICE_ID`/`AGENT_DEVICE_SECRET` env vars
-
-**Relay returns `DEVICE_OFFLINE`**
-- The agent is not connected or its heartbeat timed out (>90s since last heartbeat)
-- Check `curl http://127.0.0.1:4888/devices` to see device status
-
-**`504 Device timed out`**
-- The bridge-api is not responding; check `pnpm api` terminal
-- Verify `BRIDGE_TOKEN` is correct
-
-**`401 Unauthorized` on `/gpt/request`**
-- The relay client token in your curl request doesn't match `RELAY_CLIENT_TOKEN`
-- Copy the full token printed at relay-server startup
+| Message | Cause |
+|---|---|
+| `auth_fail: Invalid signature` | The relay's `AGENT_DEVICE_ID` or `AGENT_DEVICE_SECRET` does not match `data/agent/device-credentials.json` |
+| `DEVICE_OFFLINE` | The agent is not connected |
+| `DEVICE_TIMEOUT` | `bridge-api` is down, or `BRIDGE_TOKEN` is wrong |
+| `401 Unauthorized` | The client token does not match `data/relay-client-token.txt` |

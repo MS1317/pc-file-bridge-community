@@ -19,6 +19,9 @@ function sleepingCommand(milliseconds: number): string {
   return `node -e "process.chdir(require('os').tmpdir()); setTimeout(() => {}, ${milliseconds})"`;
 }
 
+// Each test starts real processes, which is slow on a busy machine.
+jest.setTimeout(30_000);
+
 describe('TerminalService', () => {
   let dataDir: string;
   let workspaceRoot: string;
@@ -41,9 +44,12 @@ describe('TerminalService', () => {
     service = new TerminalService(new AuditLog(dataDir), dataDir);
   });
 
-  afterEach(() => {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  afterEach(async () => {
+    // Windows keeps a finished child's working directory busy for a moment. Retry
+    // without blocking the event loop so the child's exit can be processed.
+    for (const dir of [dataDir, workspaceRoot]) {
+      await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    }
     delete process.env.BRIDGE_TEST_SECRET;
   });
 
@@ -189,6 +195,29 @@ describe('TerminalService', () => {
     expect(failedResult.exitCode).toBe(7);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(service.status(workspace, failed.jobId).state).toBe('failed');
+  });
+
+  it('never reports a finished job as lost because of a stale read', async () => {
+    const started = service.start(workspace, { workspaceId: workspace.id, command: 'node --version' });
+    await waitForTerminal(service, workspace, started.jobId);
+
+    const store = (service as any).store;
+    const finished = store.read(started.jobId);
+    const realRead = store.read.bind(store);
+    // First read happens before the worker saved its result and exited.
+    store.read = jest.fn(realRead).mockImplementationOnce(() => ({
+      ...finished,
+      state: { ...finished.state, state: 'running', finishedAt: null, workerProcessId: 2 ** 30 },
+    }));
+    expect(service.status(workspace, started.jobId).state).toBe('completed');
+  });
+
+  it('leaves state.json to the worker after starting it', () => {
+    const store = (service as any).store;
+    const writeState = jest.spyOn(store, 'writeState');
+    const started = service.start(workspace, { workspaceId: workspace.id, command: 'node --version' });
+    expect(writeState).toHaveBeenCalledTimes(1); // the initial record only
+    expect(started.workerProcessId).not.toBeNull();
   });
 
   it('recovers persisted ownership across service instances without spawning another process', async () => {

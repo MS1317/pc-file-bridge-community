@@ -42,6 +42,8 @@ export interface PersistedTerminalJobControl {
   leaseId: string;
   leaseExpiresAt: string;
   stopRequested: boolean;
+  /** Set by the API. The worker owns state.json, so the API never writes it while the worker is alive. */
+  workerProcessId?: number;
 }
 
 export interface PersistedTerminalJobSnapshot {
@@ -51,16 +53,25 @@ export interface PersistedTerminalJobSnapshot {
 
 export type TerminalOutputStream = 'stdout' | 'stderr';
 
-function writePersistedFile(filePath: string, content: Buffer): void {
+/** Windows briefly locks a file while the other process replaces or reads it. */
+function retryWhileLocked<T>(operation: () => T): T {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      writeFileAtomically(filePath, content);
-      return;
+      return operation();
     } catch (error) {
-      if (process.platform !== 'win32' || attempt >= 4) throw error;
+      const locked = ['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '');
+      if (process.platform !== 'win32' || !locked || attempt >= 50) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }
+}
+
+function writePersistedFile(filePath: string, content: Buffer): void {
+  retryWhileLocked(() => writeFileAtomically(filePath, content));
+}
+
+function readPersistedFile(filePath: string): string {
+  return retryWhileLocked(() => fs.readFileSync(filePath, 'utf8'));
 }
 
 export class TerminalJobStore {
@@ -84,8 +95,8 @@ export class TerminalJobStore {
   }
 
   read(jobId: string): PersistedTerminalJobSnapshot {
-    const state = this.parseState(jobId, fs.readFileSync(this.statePath(jobId), 'utf8'));
-    const control = this.parseControl(jobId, fs.readFileSync(this.controlPath(jobId), 'utf8'));
+    const state = this.parseState(jobId, readPersistedFile(this.statePath(jobId)));
+    const control = this.parseControl(jobId, readPersistedFile(this.controlPath(jobId)));
     return { state, control };
   }
 

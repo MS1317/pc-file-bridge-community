@@ -1,8 +1,23 @@
 import { randomBytes } from 'crypto';
-import { buildRelayServer } from './server.js';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { buildRelayServer } from './server';
 
 const PORT = Number(process.env.RELAY_PORT ?? 4888);
-const RELAY_CLIENT_TOKEN = process.env.RELAY_CLIENT_TOKEN ?? randomBytes(32).toString('hex');
+const DATA_DIR = resolve(__dirname, '../../../data');
+const TOKEN_PATH = join(DATA_DIR, 'relay-client-token.txt');
+
+function loadOrCreateClientToken(): string {
+  mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    writeFileSync(TOKEN_PATH, randomBytes(32).toString('hex'), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  return readFileSync(TOKEN_PATH, 'utf8').trim();
+}
+
+const RELAY_CLIENT_TOKEN = process.env.RELAY_CLIENT_TOKEN?.trim() || loadOrCreateClientToken();
 
 // In Stage 2A simulation, the bridge-agent will present its device credentials.
 // For local testing, seed one device from environment variables.
@@ -20,13 +35,13 @@ async function main() {
 
   console.log('');
   console.log('╔══════════════════════════════════════════════╗');
-  console.log('║         Relay Server  v0.1.0                 ║');
+  console.log('║         Relay Server  v0.2.0                 ║');
   console.log('╠══════════════════════════════════════════════╣');
   console.log(`║  HTTP  →  http://127.0.0.1:${PORT}            ║`);
   console.log(`║  WS    →  ws://127.0.0.1:${PORT}/device       ║`);
   console.log('╠══════════════════════════════════════════════╣');
   console.log(`║  Relay client token:                         ║`);
-  console.log(`║  ${'[REDACTED]'}  ║`);
+  console.log(`║  ${process.env.RELAY_CLIENT_TOKEN ? 'from RELAY_CLIENT_TOKEN' : 'saved in data/relay-client-token.txt'}`.padEnd(47) + '║');
   console.log('╚══════════════════════════════════════════════╝');
   console.log('');
 

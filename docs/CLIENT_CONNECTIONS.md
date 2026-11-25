@@ -1,39 +1,98 @@
 # Connecting AI clients
 
-PC File Bridge is an MCP server, not a ChatGPT-only extension. It can be used with Claude, ChatGPT, and other clients that support MCP over HTTP.
+PC File Bridge is an MCP server over HTTP. Any client that supports it can connect. Before you start, follow the [quick start](../README.md#quick-start) so that `pnpm preflight:mcp` passes.
 
-## Start locally
+You need two things:
 
-1. Install dependencies: `corepack pnpm install --frozen-lockfile`.
-2. Start the local API, dashboard and MCP server: `corepack pnpm dev:mcp`.
-3. Open the dashboard at http://127.0.0.1:4778.
-4. Enter the bridge API token when prompted, then navigate to **Access Control**.
-5. Copy the on-device administrator credential from `data/local-admin-token.txt` into the Access Control screen. Never share it with an AI client.
-6. Enable **File modifications** and/or **Terminal commands**. Keep **Require local approval** enabled for untrusted clients.
+- **URL:** `http://127.0.0.1:4779/mcp` on the same PC, or `https://YOUR_HOST/mcp` through a tunnel
+- **Token:** printed by `pnpm token:mcp`
 
-The local HTTP endpoint is `http://127.0.0.1:4779/mcp`. Connectors hosted in the cloud cannot reach it directly.
+Two ways to send the token:
 
-## Claude (remote MCP connector)
+| Method | Use it when |
+|---|---|
+| Header `Authorization: Bearer YOUR_MCP_TOKEN` on `/mcp` | The client can set headers. Preferred. |
+| Token in the URL: `/mcp/YOUR_MCP_TOKEN` | The client cannot set headers. The whole URL is then a secret. |
 
-Claude supports remote Streamable HTTP MCP. According to Anthropic's current guidance, in Claude choose **Customize > Connectors > Add custom connector** (the UI may vary), supply the publicly reachable HTTPS MCP URL, and configure its bearer token using the connector's **Request headers** settings. For a client unable to send a bearer header, the server also supports a token-in-URL compatibility path; protect that URL against logging and sharing.
+Never give a client `data/auth-token.txt` or `data/local-admin-token.txt`.
 
-If your bridge is on your own PC, expose **only** the MCP port via a TLS-protected tunnel. Never expose the dashboard or Bridge API.
+## Claude Code
 
-Anthropic documentation:
+Same PC:
+
+```bash
+claude mcp add --transport http pc-file-bridge http://127.0.0.1:4779/mcp --header "Authorization: Bearer YOUR_MCP_TOKEN"
+```
+
+Another computer or a phone, after setting up [remote access](#remote-access):
+
+```bash
+claude mcp add --transport http pc-file-bridge https://YOUR_HOST/mcp --header "Authorization: Bearer YOUR_MCP_TOKEN"
+```
+
+Add `--scope user` to make it available in every project. Check it with `claude mcp list`, or `/mcp` inside Claude Code.
+
+To keep the token out of your shell history, put it in a file that only you can read and substitute it:
+
+```bash
+claude mcp add --transport http pc-file-bridge https://YOUR_HOST/mcp --header "Authorization: Bearer $(cat ~/.pc-bridge-token)"
+```
+
+### Claude Code in Termux (Android)
+
+Install Claude Code inside a Linux distribution in Termux (for example Ubuntu through `proot-distro`), then run the remote command above there. `pkg` works only in Termux itself, not inside the distribution. A phone always needs [remote access](#remote-access), because `127.0.0.1` on the phone is the phone.
+
+## Claude (web, desktop and mobile)
+
+Claude connects from Anthropic's servers, so it needs [remote access](#remote-access). Choose **Customize → Connectors → Add custom connector**, enter `https://YOUR_HOST/mcp`, and set the bearer token under **Request headers**. If your plan or app does not offer request headers, use the token-in-URL form. Menu names can change:
+
 - https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
 - https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities
 
-## ChatGPT and other MCP clients
+## ChatGPT
 
-Connect using a Streamable HTTP MCP endpoint with the remote token, or your client's supported authentication setup. The same server tools and access-control rules apply regardless of the model or client.
+ChatGPT also connects from the internet, so it needs [remote access](#remote-access). In developer mode, add a custom MCP connector with:
 
-## Local approvals
+| Field | Value |
+|---|---|
+| Authentication | No Auth |
+| Server URL | `https://YOUR_HOST/mcp/YOUR_MCP_TOKEN` |
 
-An edit or terminal tool can return an `approvalRequired` response with an `approvalId`.
+Availability depends on your ChatGPT plan and region. More in [MCP_DEVELOPER_MODE.md](MCP_DEVELOPER_MODE.md).
 
-1. Review its **exact submitted payload** in the local Access Control dashboard.
-2. Approve or reject. Approvals are one-use and expire after 10 minutes.
-3. Ask the client to call `get_operation_approval` with that ID to retrieve final status and the execution result. Approvals can be lost on Bridge API restart.
-4. If the feature is disabled, the API rejects the operation before execution.
+## Other clients
 
-Security notes: terminal execution is **not sandboxed**; it runs with the PC user's permissions. The administrator credential is distinct from the MCP token and is never needed by an AI client. The dashboard restricts policy changes and approval actions to the local browser and administrator credential.
+Use the Streamable HTTP transport with the URL and header above. The server answers `POST` with JSON. It does not open a server-sent event stream, so `GET /mcp` returns 405, which the MCP specification allows.
+
+## Remote access
+
+Expose **only port 4779**, and only over HTTPS. Anyone who has the URL and the token can use every capability you enabled, so start with writes and terminal off.
+
+### Tailscale Funnel
+
+1. Install Tailscale on the PC and sign in. Enable Funnel, MagicDNS and HTTPS certificates for your tailnet. The client device does not need Tailscale.
+2. With the bridge running:
+
+   ```bash
+   pnpm preflight:mcp
+   pnpm tunnel:tailscale
+   ```
+
+3. Tailscale prints `https://YOUR_HOST`. Your MCP URL is that plus `/mcp`.
+4. Stop publishing with `pnpm tunnel:tailscale:off`.
+
+Funnel keeps its setting across restarts, but the bridge does not start by itself. See [Start at sign-in](../README.md#start-at-sign-in). The command refuses a port that Tailscale already uses for another app. If 443 is taken, set `TAILSCALE_HTTPS_PORT` to `8443` or `10000` for both `on` and `off`.
+
+### Other tunnels
+
+Any HTTPS tunnel works if it points at `http://127.0.0.1:4779`, for example `cloudflared tunnel --url http://127.0.0.1:4779`. The [tunnel checklist](TUNNEL_TEST_CHECKLIST.md) lists what to verify first.
+
+## Approvals
+
+If **Require local approval** is on, a write or command returns `approvalRequired` with an `approvalId`.
+
+1. Review the exact payload under **Access Control** on the PC.
+2. Approve or reject it within 10 minutes. Each approval works once.
+3. Ask the client to call `get_operation_approval` with that ID to get the result.
+
+Approval is off by default. Turn it on for clients you do not fully trust. Pending approvals are lost when the Bridge API restarts.

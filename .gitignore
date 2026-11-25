@@ -5,6 +5,7 @@ coverage/
 data/
 .agents/
 .codex/
+.claude/
 .pnpm-store/
 graphify-out/
 *.local

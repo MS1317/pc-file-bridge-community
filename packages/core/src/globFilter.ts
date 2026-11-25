@@ -58,12 +58,12 @@ export const DEFAULT_BLOCKED_GLOBS: string[] = [
 // workspace count ever explodes.
 const matcherCache = new Map<string, (input: string) => boolean>();
 
-function getMatcher(patterns: string[]): (input: string) => boolean {
-  const key = patterns.join('\n');
+function getMatcher(patterns: string[], nocase: boolean): (input: string) => boolean {
+  const key = (nocase ? 'i\n' : 's\n') + patterns.join('\n');
   let fn = matcherCache.get(key);
   if (!fn) {
     const regexes = patterns
-      .map((p) => micromatch.makeRe(p, { dot: true }))
+      .map((p) => micromatch.makeRe(p, { dot: true, nocase }))
       .filter((re): re is RegExp => re instanceof RegExp);
     fn = (input: string) => regexes.some((re) => re.test(input));
     matcherCache.set(key, fn);
@@ -74,7 +74,23 @@ function getMatcher(patterns: string[]): (input: string) => boolean {
 /** Fast equivalent of micromatch.isMatch(input, patterns, { dot: true }). */
 export function matchesAny(input: string, patterns: string[]): boolean {
   if (patterns.length === 0) return false;
-  return getMatcher(patterns)(input.replace(/\\/g, '/'));
+  return getMatcher(patterns, false)(input.replace(/\\/g, '/'));
+}
+
+/**
+ * Like matchesAny, for deny rules. Case-insensitive because `SECRETS/x` and
+ * `secrets/x` are the same file on Windows and macOS.
+ */
+export function matchesAnyBlocked(input: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  return getMatcher(patterns, true)(input.replace(/\\/g, '/'));
+}
+
+/** `.bridgeignore` entries may name a directory, which excludes everything below it. */
+export function matchesBridgeIgnore(input: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  const contents = patterns.filter((p) => !p.startsWith('!')).map((p) => `${p.replace(/\/+$/, '')}/**`);
+  return matchesAnyBlocked(input, patterns) || matchesAnyBlocked(input, contents);
 }
 
 export type FilterResult =
@@ -96,17 +112,17 @@ export function checkGlobAccess(
   const normalized = relativePath.replace(/\\/g, '/');
 
   // Default security rules are always applied first and cannot be overridden
-  if (matchesAny(normalized, DEFAULT_BLOCKED_GLOBS)) {
+  if (matchesAnyBlocked(normalized, DEFAULT_BLOCKED_GLOBS)) {
     return { allowed: false, reason: 'Blocked by default security rules' };
   }
 
   // .bridgeignore patterns (workspace-local, loaded from disk)
-  if (matchesAny(normalized, bridgeIgnorePatterns)) {
+  if (matchesBridgeIgnore(normalized, bridgeIgnorePatterns)) {
     return { allowed: false, reason: 'Blocked by .bridgeignore' };
   }
 
   // Workspace blockedGlobs (configured at workspace registration time)
-  if (matchesAny(normalized, workspace.blockedGlobs)) {
+  if (matchesAnyBlocked(normalized, workspace.blockedGlobs)) {
     return { allowed: false, reason: 'Blocked by workspace blockedGlobs' };
   }
 

@@ -7,6 +7,6 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
   },
   moduleNameMapper: {
-    '^shared$': '<rootDir>/../../packages/shared/src/index.ts',
+    '^@bridge/shared$': '<rootDir>/../../packages/shared/src/index.ts',
   },
 };

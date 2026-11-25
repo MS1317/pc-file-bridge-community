@@ -35,11 +35,6 @@
 # Custom build output directory (rename to match your project)
 # my-output-dir/**
 
-# Framework-specific compiled output
-# .output/**
-# .svelte-kit/**
-# storybook-static/**
-
 # ── Test and CI artifacts ─────────────────────────────────────────────────────
 
 # Test result files

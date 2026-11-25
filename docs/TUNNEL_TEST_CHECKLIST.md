@@ -1,74 +1,28 @@
-# Tunnel Test Checklist
+# Tunnel checklist
 
-This checklist is for tunnel-test readiness only.
+Work through this before you expose the MCP server for the first time.
 
-- Do not set up a tunnel from this checklist alone.
-- Do not expose anything publicly until you explicitly choose a tunnel provider.
-- Do not test against a real project first.
-- The MCP token grants terminal-command authority; keep the tunnel private and use the dummy workspace first.
+## Before
 
-## Local Startup
+- [ ] `pnpm bridge:start` is running and `pnpm preflight:mcp` shows only `PASS`.
+- [ ] Only a throwaway folder is registered as a workspace.
+- [ ] File modifications and terminal commands are **off** in Access Control.
+- [ ] The bridge runs as your normal user, not as administrator.
+- [ ] The tunnel points at `http://127.0.0.1:4779` and nothing else.
 
-Start local services in separate terminals:
+## Through the tunnel
 
-```bash
-corepack pnpm api
-corepack pnpm mcp
-```
+- [ ] `https://YOUR_HOST/health` answers.
+- [ ] `POST https://YOUR_HOST/mcp` without a token returns `401`.
+- [ ] Your client connects and lists the tools.
+- [ ] `list_workspaces` and `read_file` work on the throwaway folder.
+- [ ] `apply_change` fails with `fileWrites is disabled`.
+- [ ] Ports 4777 and 4778 are **not** reachable from outside.
 
-Before any tunnel test, run:
+## Then
 
-```bash
-corepack pnpm preflight:mcp
-```
+- [ ] Turn on file modifications, and approval if you want it. Change a file, then revert it.
+- [ ] Register your real project.
+- [ ] Turn on the terminal only if you need it and trust the client.
 
-If local build verification has not already been run, also run:
-
-```bash
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-```
-
-## Safest Tunnel Order
-
-Use this order when you are ready to test an external MCP endpoint:
-
-1. OpenAI Secure MCP Tunnel first, if available.
-2. Tailscale Funnel second.
-3. Cloudflare Quick Tunnel only for temporary testing.
-
-## Exact Safety Rules
-
-- Never expose `4777` `bridge-api`.
-- Never expose `4778` `dashboard`.
-- Only expose `4779` `mcp-server`.
-- Test only with the dummy workspace first: `C:\Users\developer\Desktop\Dev\bridge-test-project`.
-- Do not apply edits to a real project during tunnel testing.
-- Keep `bridge-api` bound to `127.0.0.1`.
-- Keep the dashboard local-only.
-
-## Preflight Expectations
-
-`corepack pnpm preflight:mcp` checks:
-
-- `bridge-api` health on `http://127.0.0.1:4777/health`
-- `mcp-server` health on `http://127.0.0.1:4779/health`
-- MCP `initialize`
-- MCP `tools/list`
-- Dummy workspace registration for first-pass testing
-
-The preflight script does not create a tunnel and does not expose any port publicly.
-
-## First Tunnel Test Scope
-
-When you do move to tunnel testing later, keep scope narrow:
-
-1. Expose only `http://127.0.0.1:4779/mcp`.
-2. Use the dummy workspace first.
-3. Confirm `initialize` and `tools/list`.
-4. Confirm read-only tools before any preview-change flow.
-5. Confirm `preview_change` creates only a pending change.
-6. Do not apply pending changes to a real project during first tunnel tests.
-
-For the Tailscale option, the explicit controls are `corepack pnpm tunnel:tailscale`, `corepack pnpm tunnel:tailscale:status`, and `corepack pnpm tunnel:tailscale:off`. The start command checks local MCP and bridge-api health first and only targets port 4779. Funnel is public HTTPS, so continue to treat the path token as a secret.
+Turn the tunnel off when you do not need it (`pnpm tunnel:tailscale:off`). If the token may have leaked, run `pnpm token:mcp:rotate` and restart the bridge.

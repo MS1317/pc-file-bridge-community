@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type WebSocket from 'ws';
-import type { DeviceStatus } from 'shared';
+import type { DeviceStatus } from '@bridge/shared';
 
 const OFFLINE_THRESHOLD_MS = 90_000;
 

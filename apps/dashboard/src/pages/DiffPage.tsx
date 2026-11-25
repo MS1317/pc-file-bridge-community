@@ -57,9 +57,12 @@ export default function DiffPage() {
     if (!preview) return;
     if (!confirm('Apply this change? A backup will be created automatically.')) return;
     setApplying(true); setError('');
-    const r = await api.applyChange(workspaceId, preview.pendingChangeId);
+    const r = await api.applyChange(preview.workspaceId, preview.pendingChangeId);
     setApplying(false);
-    if (r.ok) {
+    if (r.ok && (r.data as { approvalRequired?: boolean }).approvalRequired) {
+      setApplySuccess('Waiting for approval. Approve it in Access Control to apply the change.');
+      setPreview(null);
+    } else if (r.ok) {
       setApplySuccess(`✓ Applied! Audit ID: ${r.data.auditId} · Backup: ${r.data.backupId}`);
       setPreview(null);
     } else setError(r.error);
@@ -125,9 +128,9 @@ export default function DiffPage() {
         <div style={{ marginTop: 24 }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <h3 style={{ fontSize: 15 }}>Pending Change</h3>
-            <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: 'rgba(76,175,130,0.18)', color: 'var(--success)' }}>
-              ✓ Safe to apply
-            </span>
+            {preview.safe && <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 4, background: 'rgba(76,175,130,0.18)', color: 'var(--success)' }}>
+              ✓ Ready to apply
+            </span>}
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               ID: <code style={{ color: 'var(--code)' }}>{preview.pendingChangeId}</code>
               {' · '}Expires: {new Date(preview.expiresAt).toLocaleTimeString()}

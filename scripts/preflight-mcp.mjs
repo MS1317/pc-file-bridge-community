@@ -12,9 +12,8 @@ if (fs.existsSync(mcpTokenPath)) {
   mcpToken = fs.readFileSync(mcpTokenPath, 'utf8').trim();
 } else {
   console.warn('[WARN] data/mcp-remote-token.txt not found — MCP auth requests will fail.');
-  console.warn('       Run `pnpm token:mcp` first to generate the token, then start the servers.');
+  console.warn('       Start the bridge with `pnpm bridge:start`; it creates the token.');
 }
-const workspaceRoot = path.join(repoRoot, 'data', 'bridge-test-project');
 
 const ALL_TOOLS = [
   'list_workspaces',
@@ -29,16 +28,16 @@ const ALL_TOOLS = [
   'preview_insert_before',
   'preview_insert_after',
   'preview_change',
+  'apply_change',
   'list_pending_changes',
-
+  'apply_pending_change',
   'reject_pending_change',
   'recent_changes',
-
+  'revert_change',
+  'run_terminal_command',
+  'inspect_spreadsheet',
+  'get_operation_approval',
 ];
-
-function repoPath(...parts) {
-  return path.join(repoRoot, ...parts);
-}
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -97,29 +96,9 @@ async function waitForJson(url, attempts = 10, delayMs = 500) {
   throw lastError instanceof Error ? lastError : new Error(`Failed to reach ${url}`);
 }
 
-function buildVerificationState() {
-  const checkpoints = [
-    repoPath('packages', 'shared', 'dist', 'index.js'),
-    repoPath('packages', 'core', 'dist', 'index.js'),
-    repoPath('apps', 'bridge-api', 'dist', 'index.js'),
-    repoPath('apps', 'mcp-server', 'dist', 'index.js'),
-    repoPath('apps', 'dashboard', 'dist', 'index.html'),
-  ];
-  return checkpoints.every((filePath) => fs.existsSync(filePath));
-}
-
 async function main() {
   console.log('MCP preflight checks');
   console.log('This does not create a tunnel or expose any port publicly.');
-  console.log('');
-
-  const buildLooksPresent = buildVerificationState();
-  if (buildLooksPresent) {
-    ok('Build artifacts are present for shared, core, bridge-api, mcp-server, and dashboard');
-  } else {
-    warn('Build artifacts are missing or incomplete. Run `corepack pnpm typecheck`, `corepack pnpm test`, and `corepack pnpm build` before tunnel testing');
-  }
-
   console.log('');
 
   const bridgeHealth = await waitForJson(`${bridgeApiBaseUrl}/health`);
@@ -155,7 +134,7 @@ async function main() {
   for (const toolName of ALL_TOOLS) {
     assert(toolNames.includes(toolName), `Missing MCP tool (header auth): ${toolName}`);
   }
-  ok(`MCP tools/list correct via header auth (${ALL_TOOLS.length} tools)`);
+  ok(`MCP tools/list correct via header auth (${toolNames.length} tools)`);
 
   // ── Path-token checks (ChatGPT "No Auth" mode) ─────────────────────────────
 
@@ -180,7 +159,7 @@ async function main() {
   for (const toolName of ALL_TOOLS) {
     assert(toolNamesPath.includes(toolName), `Missing MCP tool (path auth): ${toolName}`);
   }
-  ok(`MCP tools/list correct via path-token auth (${ALL_TOOLS.length} tools)`);
+  ok(`MCP tools/list correct via path-token auth (${toolNamesPath.length} tools)`);
 
   const listWorkspaces = await mcpPost({
     jsonrpc: '2.0',
@@ -193,24 +172,16 @@ async function main() {
   });
   assert(listWorkspaces.response.ok, 'MCP list_workspaces call failed');
   const workspaces = listWorkspaces.json?.result?.structuredContent?.workspaces ?? [];
-  const dummyWorkspace = workspaces.find((workspace) => workspace.name === 'Bridge Test Project');
-  assert(dummyWorkspace, `Dummy workspace is missing. Create and register ${workspaceRoot} before tunnel testing`);
-  ok(`Dummy workspace is registered for first-pass tunnel testing (${workspaceRoot})`);
+  assert(listWorkspaces.json?.result?.isError !== true, 'MCP could not list workspaces through bridge-api');
+  if (workspaces.length > 0) ok(`${workspaces.length} workspace(s) registered`);
+  else warn('No workspace registered yet. Add one in the dashboard at http://127.0.0.1:4778');
 
   console.log('');
   console.log('Safety reminders');
   console.log('- Never expose 4777 bridge-api');
   console.log('- Never expose 4778 dashboard');
   console.log('- Only expose 4779 mcp-server');
-  console.log('- Test only with the dummy workspace first');
-
-  if (!buildLooksPresent) {
-    console.log('');
-    console.log('Next required local verification');
-    console.log('- Run `corepack pnpm typecheck`');
-    console.log('- Run `corepack pnpm test`');
-    console.log('- Run `corepack pnpm build`');
-  }
+  console.log('- Try a throwaway folder before a real project');
 }
 
 main().catch((error) => {

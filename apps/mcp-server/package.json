@@ -1,6 +1,6 @@
 {
   "name": "mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -12,7 +12,7 @@
   "dependencies": {
     "@bridge/core": "workspace:*",
     "@bridge/shared": "workspace:*",
-    "fastify": "^4.28.1"
+    "fastify": "^5.12.8"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

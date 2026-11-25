@@ -15,12 +15,13 @@ export default function TokenPage({ onSaved }: Props) {
     setChecking(true);
     setError('');
     localStorage.setItem('bridge_token', token.trim());
-    const res = await api.health();
+    // /health needs no token, so check against an authenticated endpoint
+    const res = await api.listWorkspaces();
     setChecking(false);
     if (res.ok) {
       onSaved();
     } else {
-      setError('Could not reach the API with this token. Make sure the bridge API is running on port 4777.');
+      setError(`Token rejected or API unreachable (${res.error}). Check the token and that the bridge API is running on port 4777.`);
       localStorage.removeItem('bridge_token');
     }
   }
@@ -31,7 +32,7 @@ export default function TokenPage({ onSaved }: Props) {
         <h2 style={{ marginBottom: 6 }}>Connect to Bridge API</h2>
         <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 13 }}>
           Enter the auth token from <code style={{ color: 'var(--code)' }}>data/auth-token.txt</code>.
-          It was printed when you first started the API.
+          It was created when you first started the bridge.
         </p>
         <label>Auth Token</label>
         <input

@@ -9,10 +9,10 @@ import {
   type AuthFailMessage,
   type RelayRequestMessage,
   type HeartbeatAckMessage,
-} from 'shared';
-import type { DeviceCredentials } from './credentials.js';
+} from '@bridge/shared';
+import type { DeviceCredentials } from './credentials';
 
-const AGENT_VERSION = '0.1.0';
+const AGENT_VERSION = '0.2.0';
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 18_000;

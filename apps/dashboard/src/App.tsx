@@ -30,18 +30,12 @@ export default function App() {
 
   useEffect(() => {
     async function check() {
-      try {
-        const r = await api.health();
-        if (r.ok) { setApiStatus('online'); return; }
-        // health doesn't require auth, but if the API is unreachable we'll catch below
-        setApiStatus('offline');
-      } catch { setApiStatus('offline'); }
-
-      // Also check an auth-required endpoint to detect bad token
-      const ws = await api.listWorkspaces().catch(() => null);
-      if (ws && !ws.ok && ws.error?.toLowerCase().includes('unauthorized')) {
-        setApiStatus('unauthorized');
-      }
+      const r = await api.health();
+      if (!r.ok) { setApiStatus('offline'); return; }
+      // Health needs no token, so also call an authenticated endpoint. Nothing to check before sign-in.
+      if (!localStorage.getItem('bridge_token')) return;
+      const ws = await api.listWorkspaces();
+      setApiStatus(!ws.ok && ws.error?.toLowerCase().includes('unauthorized') ? 'unauthorized' : 'online');
     }
     check();
     const id = setInterval(check, 30_000);
@@ -50,7 +44,7 @@ export default function App() {
 
   const hasToken = !!localStorage.getItem('bridge_token');
   if (!hasToken) {
-    return <TokenPage onSaved={() => navigate('/')} />;
+    return <TokenPage onSaved={() => { setApiStatus('online'); navigate('/'); }} />;
   }
 
   if (apiStatus === 'unauthorized') {

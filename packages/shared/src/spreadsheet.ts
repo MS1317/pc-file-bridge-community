@@ -784,7 +784,7 @@ function schema(properties: Record<string, unknown>, required: string[] = []): R
 }
 
 const WRITE_DESCRIPTION =
-  'Write through the bridge spreadsheet service. ChatGPT should use this for workbook cells, rows, sheets, or ranges instead of run_terminal_command. ' +
+  'Write through the bridge spreadsheet service. Use this for workbook cells, rows, sheets, or ranges instead of run_terminal_command. ' +
   'The bridge validates the workspace path, takes a backup, saves atomically, reopens the workbook, verifies the requested mutation, and records an audit entry.';
 
 export const SPREADSHEET_TOOL_DEFINITIONS: SpreadsheetToolDefinition[] = [

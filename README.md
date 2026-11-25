@@ -1,217 +1,177 @@
 # PC File Bridge
 
-A local bridge for approved workspace files with two integration paths:
+Give Claude, ChatGPT and other MCP clients controlled access to folders you choose on your own PC. Clients can read, search and edit files in those folders, and run commands if you allow it.
 
-- MCP Developer Mode via `apps/mcp-server`
-- OpenAPI / GPT Actions via the existing bridge-api + relay path
+- **Off by default.** File changes and terminal commands stay disabled until you enable them in a local dashboard.
+- **Only the folders you register.** Path, link and secret-file rules apply to every file tool.
+- **Undo.** Every file change is backed up and logged, and can be reverted.
 
-[Connecting Claude, ChatGPT, and other MCP clients](docs/CLIENT_CONNECTIONS.md) · [Local access control and approvals](docs/SECURITY.md)
+[Connect a client](docs/CLIENT_CONNECTIONS.md) · [Security model](docs/SECURITY.md) · [API reference](docs/API.md) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
-Both paths use the same safety layer: auth, path guards, glob filtering, pending-change preview, backups, audit log, and a local dashboard.
+> [!WARNING]
+> Terminal commands run as your user account and are **not sandboxed**. Enable them only for clients you trust. Never expose ports 4777 or 4778 to a network.
 
-> Services listen locally by default. Tunneling the MCP endpoint exposes it to network clients; never expose the bridge API or dashboard.
+## Requirements
 
-## Community security defaults
-**Read-only by default.** Use Dashboard → Access Control to enable file changes and terminal commands independently. Operations require local dashboard approval unless you explicitly disable approval. These policies are enforced by Bridge API, including direct requests from any MCP client.
+| | |
+|---|---|
+| Node.js | 20.19 or newer, or 22.12 or newer |
+| pnpm | 9 (`npm install -g pnpm@9`) |
+| OS | Developed and tested on Windows 10/11. Linux and macOS are expected to work but get less testing. |
 
-The first time you configure local approvals, copy the separately generated credential from `data/local-admin-token.txt` into the dashboard. Do not share this credential with any MCP client. Operation requests expire after 10 minutes. Terminal commands are **not OS-sandboxed**, and run with your computer account privileges.
+## Quick start
 
-Compatible with **Claude, ChatGPT, and other clients supporting MCP over HTTP**. The client authenticates to the MCP server; approval is handled locally. When a tool returns `approvalRequired` and `approvalId`, approve it in the local dashboard and call `get_operation_approval` to fetch its result.
-
-## Quick Start
-
-### Prerequisites
-- Node.js 18+
-- pnpm (`npm install -g pnpm`)
-
-### Install
 ```bash
+git clone https://github.com/MS1317/pc-file-bridge-community.git
 cd pc-file-bridge-community
 pnpm install
+pnpm bridge:start
 ```
 
-### Run the local UI path
-```bash
-pnpm dev
-```
+The first start compiles the shared packages and creates a `data/` folder with your tokens. Leave the terminal open.
 
-| Service | URL |
-|---|---|
-| Bridge API | http://127.0.0.1:4777 |
-| Dashboard | http://127.0.0.1:4778 |
+| Service | Address | Expose to the internet? |
+|---|---|---|
+| Dashboard | http://127.0.0.1:4778 | Never |
+| Bridge API | http://127.0.0.1:4777 | Never |
+| MCP server | http://127.0.0.1:4779/mcp | Only through a TLS tunnel, if you need remote access |
 
-### Run the MCP path locally
-```bash
-pnpm dev:mcp
-```
+### Set it up
 
-| Service | URL |
-|---|---|
-| MCP Server | http://127.0.0.1:4779/mcp |
-| Bridge API | http://127.0.0.1:4777 |
-| Dashboard | http://127.0.0.1:4778 |
+1. Open http://127.0.0.1:4778 and paste the contents of `data/auth-token.txt`.
+2. On **Workspaces**, add a folder you want clients to reach. Start with a throwaway folder.
+3. Optional: to allow edits or commands, open **Access Control**, paste `data/local-admin-token.txt`, and turn on what you need.
+4. In a second terminal, run `pnpm preflight:mcp`. Every line should say `PASS`.
+5. [Connect your client](docs/CLIENT_CONNECTIONS.md).
 
-### First run
-1. The API generates a random auth token and saves it to `data/auth-token.txt`.
-2. Open the dashboard at http://127.0.0.1:4778.
-3. Paste the token when prompted.
-4. Add a workspace on the Workspaces page.
-5. Use the Files page to browse and read files.
-6. Use Diff Preview to create a pending change before applying it.
-
-For ChatGPT Developer Mode, keep `apps/mcp-server` in front of the same bridge-api. A public HTTPS tunnel or funnel is still required when ChatGPT needs to reach the MCP endpoint from outside your machine.
-
-## Daily Usage
+Claude Code on the same PC, for example. Run `pnpm token:mcp` to print the token:
 
 ```bash
-# Start the bridge (API + dashboard + MCP server)
-corepack pnpm bridge:start
-
-# Run preflight + typecheck + test + build (requires bridge:start servers running)
-corepack pnpm bridge:check
-
-# Kill any processes on bridge ports 4777 / 4778 / 4779
-corepack pnpm bridge:stop
-
-# Print the MCP remote token (used in ChatGPT server URL)
-corepack pnpm token:mcp
-
-# Rotate the MCP remote token (update ChatGPT config after)
-corepack pnpm token:mcp:rotate
+claude mcp add --transport http pc-file-bridge http://127.0.0.1:4779/mcp --header "Authorization: Bearer YOUR_MCP_TOKEN"
 ```
 
-### ChatGPT setup
+To use the bridge from a phone or another computer, see [Remote access](docs/CLIENT_CONNECTIONS.md#remote-access).
 
-In ChatGPT → Developer Settings → MCP Servers:
+## The three tokens
 
-| Field | Value |
-|---|---|
-| Authentication | No Auth |
-| Server URL | `https://your-domain/mcp/<mcp-remote-token>` |
+All are generated on first run and stored in `data/`, which Git ignores.
 
-Get your token with `corepack pnpm token:mcp`.
+| File | Who uses it | Give it to an AI client? |
+|---|---|---|
+| `mcp-remote-token.txt` | MCP clients | Yes, this is the only one |
+| `auth-token.txt` | You, to sign in to the dashboard | No |
+| `local-admin-token.txt` | You, to change permissions and approve operations | Never |
 
-### Normal edit flow
+File tools cannot read or change `data/`, even if you register a folder that contains the bridge.
 
-When you ask ChatGPT to edit a file:
+## Permissions and approvals
 
-1. ChatGPT calls `apply_change` → previews and writes in one step (one round trip over the tunnel). ChatGPT's own permission prompt fires.
-2. You approve in the ChatGPT UI → change is written with backup + audit log
+| Setting in **Access Control** | Default | Effect |
+|---|---|---|
+| Allow file and spreadsheet modifications | Off | Write tools work inside registered workspaces |
+| Allow terminal commands | Off | Command tools work |
+| Require local approval for each sensitive operation | Off | Each write or command waits for you to approve it in the dashboard |
 
-`apply_change` accepts an optional `baseHash` (from a prior `read_file`); the write is rejected if the file changed since, guarding against clobbering a concurrent edit.
+With approval off, an enabled capability runs without another prompt from the bridge. Turn approval on for clients you do not fully trust.
 
-Prefer `apply_change` for edits. The two-step `preview_change` → `apply_pending_change` flow still exists for when you want to inspect the diff before applying — both share the same backup, audit log, path guards, and glob filters. ChatGPT's permission prompt is the approval step either way; you do not need to type "apply" separately. Writes only happen inside registered workspaces.
+With approval on, a tool returns `approvalRequired` and an `approvalId`. Approve it in the dashboard within 10 minutes, then ask the client to call `get_operation_approval`. Waiting approvals are lost when the API restarts.
 
-### Spreadsheet actions
+## Which files clients can see
 
-For `.xlsx` workbooks, use the spreadsheet tools instead of `run_terminal_command` or `read_file`:
+A new workspace allows common source, text and config files (`.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.cs`, `.md`, `.json`, `.yaml` and others) plus `.xlsx`. To add a type, open **Workspaces → Edit Policy** and add a pattern such as `**/*.vue`. Workspaces registered before an upgrade keep the list they already had.
 
-- `inspect_spreadsheet` — sheets, used ranges, dimensions, named ranges, metadata, and current hash
-- `read_spreadsheet_range` — structured raw/display values and formulas
-- `search_spreadsheet` — typed exact/contains search, optionally limited to a header column
-- `append_spreadsheet_rows` — dynamic append after the current used rows
-- `update_spreadsheet_range` — dimension-checked range writes
-- `update_spreadsheet_rows_by_key` — generic header/key update
-- `upsert_spreadsheet_rows` — update unique matches and append missing keys
-- `create_spreadsheet` and `create_spreadsheet_sheet`
+These are always blocked and cannot be allowed: `.env` files, keys and certificates, `.ssh`, `.aws`, `credentials`, `secrets/`, databases, `.git`, `node_modules`, and common build and cache folders. The [full list](docs/SECURITY.md#always-blocked) is in the security docs.
 
-Only `.xlsx` is supported. Spreadsheet writes use the registered workspace and its existing glob/path authorization, optional `baseHash` concurrency protection, the shared backup/audit/revert path, same-directory atomic replacement, and read-after-write verification. Limits are defined once in the shared contract: 50 MiB workbooks, 10,000 returned cells, 2,000 mutation rows, 200 search results, and 100,000 scanned search cells.
-
-The XLSX provider edits only the required worksheet/workbook XML and carries all other ZIP package parts through unchanged, so unrelated formulas, styles, panes, drawings, relationships, metadata, and defined names are not rewritten by cell updates. ZIP entry names are canonicalized at the provider boundary (`/` is the internal separator); unsafe paths and canonical collisions fail as `workbook_invalid`. Unsupported formats such as `.xls`, `.ods`, and `.csv` fail with a normalized typed failure.
-
-### Terminal commands
-
-The `run_terminal_command` tool requires a registered `workspaceId`, starts in that workspace (or an existing `relativeCwd` inside it), ignores stdin, strips secret-bearing inherited environment variables, applies the synchronous limits in `TERMINAL_EXECUTION_POLICY`, caps output, and records the command and outcome in the audit log. For longer work, `start_terminal_command` returns stable `jobId`, `leaseId`, and eventual process identity; poll it with `get_terminal_command`, renew ownership with `renew_terminal_command`, and stop it with `stop_terminal_command`. The requested process lifetime is separate from the bounded renewable supervisor lease, and persisted job state survives API restarts.
-
-The tool is controlled in Dashboard → Access Control, with a local approval queue. It is not an OS sandbox: commands run as your local user and can access anything that user can access. Only run the bridge while you trust the MCP client and every holder of the MCP URL token.
-
-### Targeted edits (line-based)
-
-For large files where replacing the whole content is imprecise, three targeted edit tools are available:
-
-| Tool | What it does |
-|---|---|
-| `preview_replace_range` | Replace lines `startLine`–`endLine` (1-indexed, inclusive) with new content |
-| `preview_insert_before` | Insert content before a specific line |
-| `preview_insert_after` | Insert content after a specific line |
-
-All three create a pending change (same as `preview_change`) — no file is touched until `apply_pending_change` is called. The same backup, audit log, and approval flow applies.
-
-Workflow:
-1. Use `read_file_range` to confirm exact line numbers
-2. Call `preview_replace_range` / `preview_insert_before` / `preview_insert_after`
-3. Call `apply_pending_change` with the returned `pendingChangeId`
-
-## Scripts
-
-| Command | Description |
-|---|---|
-| `pnpm bridge:start` | Start bridge (API + dashboard + MCP server) |
-| `pnpm bridge:check` | Preflight + typecheck + test + build |
-| `pnpm bridge:stop` | Kill processes on bridge ports 4777/4778/4779 |
-| `pnpm token:mcp` | Print MCP remote token |
-| `pnpm token:mcp:rotate` | Rotate MCP remote token |
-| `pnpm dev` | Run API + dashboard |
-| `pnpm dev:mcp` | Run API + dashboard + MCP server |
-| `pnpm mcp` | Run MCP server only |
-| `pnpm api` | Run API only |
-| `pnpm ui` | Run dashboard only |
-| `pnpm typecheck` | TypeScript check all packages |
-| `pnpm test` | Run security unit tests |
-| `pnpm build` | Build all packages |
-
-## Workspace Ignore File (.bridgeignore)
-
-Each workspace can have a `.bridgeignore` file at its root to exclude project-specific directories and files from all bridge operations (listing, searching, reading, tree navigation).
+To hide more, copy `.bridgeignore.example` to your workspace root as `.bridgeignore`:
 
 ```
-# .bridgeignore — placed in your workspace root
-# One glob pattern per line. # comments and blank lines are ignored.
-
-my-output-dir/**
+# One pattern per line, relative to the workspace root
+my-output-dir
 generated/**
 *.log
 ```
 
-Rules in `.bridgeignore` are applied **in addition to** built-in security defaults — they cannot remove built-in protections like `.env`, `.git`, or `node_modules` blocking.
+`.bridgeignore` only adds restrictions. It cannot unblock anything.
 
-If a file is excluded by `.bridgeignore`, direct `read_file` and `read_file_range` calls will return `Access denied: Blocked by .bridgeignore`.
+## Tools
 
-**Built-in generic skips** (no configuration needed):
-
-| Directory | Reason |
+| Group | Tools |
 |---|---|
-| `node_modules`, `.git` | Dependencies / version control |
-| `dist`, `build`, `out` | Generic build output |
-| `coverage`, `.next`, `.nuxt` | Test/framework output |
-| `cache`, `.cache`, `.parcel-cache` | Tool caches |
-| `.venv`, `venv`, `__pycache__` | Python environments |
-| `.turbo` | Turborepo cache |
+| Browse | `list_workspaces` `list_files` `list_tree` `find_file` `search_files` `repo_overview` |
+| Read | `read_file` `read_file_range` |
+| Edit in one step | `apply_change` |
+| Preview, then apply | `preview_change` `preview_replace_range` `preview_insert_before` `preview_insert_after` `list_pending_changes` `apply_pending_change` `reject_pending_change` |
+| History | `recent_changes` `revert_change` |
+| Terminal | `run_terminal_command` `start_terminal_command` `get_terminal_command` `renew_terminal_command` `stop_terminal_command` |
+| Spreadsheets | `inspect_spreadsheet` `read_spreadsheet_range` `search_spreadsheet` `append_spreadsheet_rows` `update_spreadsheet_range` `update_spreadsheet_rows_by_key` `upsert_spreadsheet_rows` `create_spreadsheet` `create_spreadsheet_sheet` |
+| Approvals | `get_operation_approval` |
 
-Copy `.bridgeignore.example` from the project root to your workspace root as `.bridgeignore` for a commented starting point.
+All tools are always listed. A disabled tool returns an error that says which setting to turn on.
 
-## Auth Token
+- **Edits:** pass `baseHash` from an earlier read to reject the write if the file changed since. Previews last 30 minutes and touch nothing until applied. One request can be up to 1 MB, or 128 KB with approval on. Line edits need a UTF-8 file.
+- **Terminal:** commands start in a registered workspace, get no stdin, and do not inherit secret environment variables. `run_terminal_command` is limited to 120 seconds. Use `start_terminal_command` for longer work, and renew its 5-minute lease while it runs.
+- **Spreadsheets:** `.xlsx` only, up to 50 MiB. Cell updates leave unrelated formulas, styles and drawings unchanged.
 
-On first run, `data/auth-token.txt` is created with a 64-char hex token.
+## Commands
 
-- Include it in every bridge-api request as `Authorization: Bearer <token>`
-- The dashboard stores it in browser localStorage
-- The MCP server reads the same local token file when it calls bridge-api
+| Command | What it does |
+|---|---|
+| `pnpm bridge:start` | Start the API, dashboard and MCP server |
+| `pnpm bridge:stop` | Stop whatever is using ports 4777, 4778 and 4779 |
+| `pnpm preflight:mcp` | Check that a running bridge is healthy |
+| `pnpm token:mcp` | Print the MCP token |
+| `pnpm token:mcp:rotate` | Replace the MCP token. Restart the bridge and update every client afterwards |
+| `pnpm tunnel:tailscale` | Publish the MCP server with Tailscale Funnel (`:status` and `:off` also exist) |
+| `pnpm dev` | API and dashboard only |
+| `pnpm api` / `pnpm ui` / `pnpm mcp` | One service at a time |
+| `pnpm build` / `pnpm typecheck` / `pnpm test` | Developer checks |
+| `pnpm bridge:check` | Preflight, typecheck, test and build against a running bridge |
+| `pnpm bridge:smoke` | Start the bridge, run the preflight, stop it again |
 
-## Workspace Registry
+## Start at sign-in
 
-Workspaces live in `data/workspaces.json`.
+On Windows, `scripts/bridge-autostart.ps1` starts the bridge in the background and waits until it is healthy. Press Win+R, open `shell:startup`, and create a shortcut with this target, using your own path:
 
-## Architecture
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\path\to\pc-file-bridge-community\scripts\bridge-autostart.ps1"
+```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current architecture.
-See [docs/MCP_DEVELOPER_MODE.md](docs/MCP_DEVELOPER_MODE.md) for the MCP-first path.
-See [docs/GPT_ACTION_SETUP.md](docs/GPT_ACTION_SETUP.md) for the alternate OpenAPI / GPT Actions path.
+Output goes to `data/bridge.log`. Run the bridge as your normal user. Running it as administrator gives every allowed command administrator rights.
 
-## Security
+## Updating
 
-See [docs/SECURITY.md](docs/SECURITY.md) for the threat model and security decisions.
+```bash
+pnpm bridge:stop
+git pull
+pnpm install
+pnpm bridge:start
+```
 
-## API Reference
+Your `data/` folder is kept. Read the [changelog](CHANGELOG.md) first. To uninstall, run `pnpm bridge:stop` and `pnpm tunnel:tailscale:off`, then delete the folder.
 
-See [docs/API.md](docs/API.md) for the bridge-api endpoints.
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `Cannot find module ...@bridge/core/dist/index.js` | Start with the `pnpm` commands above, which compile it. Run `pnpm build:packages` to do it by hand. |
+| `EADDRINUSE` or `Port 4778 is already in use` | Another copy is running. `pnpm bridge:stop` |
+| `This project is configured to use pnpm` or a lockfile error | Install pnpm 9: `npm install -g pnpm@9` |
+| Dashboard says the token was rejected | Paste `data/auth-token.txt`, not the MCP or admin token. |
+| `fileWrites is disabled` or `terminal is disabled` | Turn it on in **Access Control**. |
+| `Local administrator token required` | Paste `data/local-admin-token.txt` on the **Access Control** page. |
+| A file is missing, or `Not matched by workspace allowedGlobs` | Add its type in **Workspaces → Edit Policy**. |
+| `Blocked by default security rules` | The file is on the always-blocked list. This cannot be overridden. |
+| Client gets `401` | Wrong MCP token, or it was rotated without restarting the bridge. `pnpm token:mcp` |
+| MCP health says `degraded` | The Bridge API is down. Check the terminal, or `data/bridge.log` if you use autostart. |
+| `Tailscale already publishes another app on HTTPS port` | Set `TAILSCALE_HTTPS_PORT` to `8443` or `10000` for both `on` and `off`. |
+| Funnel URL does not answer | `pnpm tunnel:tailscale:status`. Funnel must be enabled for your tailnet and the bridge must be running. |
+
+## Experimental: relay and GPT Actions
+
+The repository also contains an unfinished relay for OpenAPI / GPT Actions. It runs on localhost only and is not needed for MCP. See [GPT_ACTION_SETUP.md](docs/GPT_ACTION_SETUP.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+Licensed under the [MIT License](LICENSE).

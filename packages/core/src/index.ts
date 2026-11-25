@@ -1,5 +1,6 @@
 export * from './bridgeIgnore';
 export * from './pathGuard';
+export * from './workspaceAccess';
 export * from './globFilter';
 export * from './fileHash';
 export * from './diffUtil';

@@ -33,7 +33,7 @@ interface PendingApproval {
 const DEFAULT_POLICY: AccessPolicy = {
   fileWrites: false,
   terminal: false,
-  requireApproval: true,
+  requireApproval: false,
 };
 const APPROVAL_TTL_MS = 10 * 60_000;
 const MAX_REQUESTS = 100;

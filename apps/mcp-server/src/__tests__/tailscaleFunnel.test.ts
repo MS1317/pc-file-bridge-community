@@ -8,6 +8,14 @@ describe('opt-in Tailscale Funnel commands', () => {
   let fetchImpl: jest.Mock;
   let spawnImpl: jest.Mock;
   let output: jest.Mock;
+  let serveConfig: unknown;
+
+  const published = (port: string, handlers: Record<string, { Proxy: string }>) => ({
+    TCP: { [port]: { HTTPS: true } },
+    Web: { ['pc.example.ts.net:' + port]: { Handlers: handlers } },
+  });
+  // Commands that change something, without the status read that precedes them.
+  const changes = () => spawnImpl.mock.calls.filter(([, args]) => args[0] !== 'serve');
 
   beforeEach(() => {
     fetchImpl = jest.fn().mockResolvedValue({
@@ -15,7 +23,11 @@ describe('opt-in Tailscale Funnel commands', () => {
       status: 200,
       json: async () => ({ ok: true, data: { status: 'running', bridgeApiHealthy: true } }),
     });
-    spawnImpl = jest.fn().mockReturnValue({ status: 0, signal: null, error: undefined });
+    serveConfig = {};
+    spawnImpl = jest.fn().mockImplementation((_command: string, args: string[]) => ({
+      status: 0, signal: null, error: undefined,
+      stdout: args[0] === 'serve' ? JSON.stringify(serveConfig) : undefined,
+    }));
     output = jest.fn();
   });
 
@@ -26,9 +38,10 @@ describe('opt-in Tailscale Funnel commands', () => {
     expect(spawnImpl).toHaveBeenCalledWith('tailscale', [
       'funnel', '--https=443', '--bg', MCP_TARGET,
     ], { stdio: 'inherit', shell: false, windowsHide: true });
-    expect(spawnImpl.mock.calls[0][1].join(' ')).not.toContain('4777');
-    expect(spawnImpl.mock.calls[0][1].join(' ')).not.toContain('4778');
-    expect(spawnImpl.mock.calls[0][1]).not.toContain('--yes');
+    expect(changes()).toHaveLength(1);
+    expect(changes()[0][1].join(' ')).not.toContain('4777');
+    expect(changes()[0][1].join(' ')).not.toContain('4778');
+    expect(changes()[0][1]).not.toContain('--yes');
     expect(output).toHaveBeenCalledWith(expect.stringContaining('/mcp/<MCP remote token>'));
   });
 
@@ -37,16 +50,17 @@ describe('opt-in Tailscale Funnel commands', () => {
     process.env.TAILSCALE_HTTPS_PORT = '10000';
     try {
       await runTailscaleTunnel('on', { fetchImpl, spawnImpl, output });
+      serveConfig = published('10000', { '/': { Proxy: MCP_TARGET } });
       await runTailscaleTunnel('off', { fetchImpl, spawnImpl, output });
     } finally {
       if (originalHttpsPort === undefined) delete process.env.TAILSCALE_HTTPS_PORT;
       else process.env.TAILSCALE_HTTPS_PORT = originalHttpsPort;
     }
 
-    expect(spawnImpl.mock.calls[0][1]).toEqual([
+    expect(changes()[0][1]).toEqual([
       'funnel', '--https=10000', '--bg', MCP_TARGET,
     ]);
-    expect(spawnImpl.mock.calls[1][1]).toEqual([
+    expect(changes()[1][1]).toEqual([
       'funnel', '--https=10000', '--bg', MCP_TARGET, 'off',
     ]);
     expect(output).toHaveBeenCalledWith(expect.stringContaining('HTTPS port 10000'));
@@ -81,12 +95,37 @@ describe('opt-in Tailscale Funnel commands', () => {
   });
 
   it('turns off the same HTTPS Funnel configuration without resetting other Tailscale settings', async () => {
+    serveConfig = published('443', { '/': { Proxy: MCP_TARGET } });
     await runTailscaleTunnel('off', { fetchImpl, spawnImpl, output });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(spawnImpl).toHaveBeenCalledWith('tailscale', [
       'funnel', '--https=443', '--bg', MCP_TARGET, 'off',
     ], expect.objectContaining({ shell: false }));
-    expect(spawnImpl.mock.calls[0][1]).not.toContain('reset');
+    expect(changes()[0][1]).not.toContain('reset');
+  });
+
+  it.each<{ label: string; handlers: Record<string, { Proxy: string }> }>([
+    { label: 'another app', handlers: { '/': { Proxy: 'http://127.0.0.1:5199' } } },
+    { label: 'another path on our port', handlers: { '/': { Proxy: MCP_TARGET }, '/private': { Proxy: 'http://127.0.0.1:5199' } } },
+  ])('never replaces, publishes or removes $label', async ({ handlers }) => {
+    serveConfig = published('443', handlers);
+    await expect(runTailscaleTunnel('on', { fetchImpl, spawnImpl, output })).rejects.toThrow('already publishes another app');
+    await expect(runTailscaleTunnel('off', { fetchImpl, spawnImpl, output })).rejects.toThrow('left alone');
+    expect(changes()).toHaveLength(0);
+  });
+
+  it('can be started again while already running, and does nothing when there is nothing to stop', async () => {
+    await runTailscaleTunnel('off', { fetchImpl, spawnImpl, output });
+    expect(changes()).toHaveLength(0);
+    serveConfig = published('443', { '/': { Proxy: MCP_TARGET } });
+    await runTailscaleTunnel('on', { fetchImpl, spawnImpl, output });
+    expect(changes()).toHaveLength(1);
+  });
+
+  it('changes nothing when the current Tailscale configuration cannot be read', async () => {
+    spawnImpl.mockReturnValueOnce({ status: 1, signal: null, error: undefined, stdout: '' });
+    await expect(runTailscaleTunnel('on', { fetchImpl, spawnImpl, output })).rejects.toThrow('Could not read');
+    expect(changes()).toHaveLength(0);
   });
 
   it('returns actionable errors for missing CLI and nonzero CLI results', async () => {

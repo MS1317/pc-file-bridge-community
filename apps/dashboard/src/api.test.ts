@@ -60,7 +60,7 @@ describe('dashboard API client', () => {
     expect(fetchMock).toHaveBeenCalledWith(path, {
       method,
       headers: {
-        'Content-Type': 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         Authorization: 'Bearer dashboard-test-token',
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -71,6 +71,11 @@ describe('dashboard API client', () => {
     storedToken = null;
     await api.health();
     expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ Authorization: 'Bearer ' });
+  });
+
+  it('returns an error instead of throwing when the bridge is unreachable', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await expect(api.listWorkspaces()).resolves.toEqual({ ok: false, error: expect.stringContaining('Cannot reach the bridge') });
   });
 
   it('returns API error payloads for the UI to display', async () => {

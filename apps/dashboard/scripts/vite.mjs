@@ -14,6 +14,7 @@ function getConfig() {
     plugins: [react()],
     server: {
       port: 4778,
+      strictPort: true, // the next port, 4779, belongs to the MCP server
       host: '127.0.0.1',
       proxy: {
         '/api': {

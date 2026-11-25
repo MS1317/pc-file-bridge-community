@@ -26,9 +26,8 @@ import {
   SpreadsheetContractError,
   SPREADSHEET_LIMITS,
 } from '@bridge/shared';
-import { checkGlobAccess } from './globFilter';
-import { loadBridgeIgnore } from './bridgeIgnore';
-import { PathGuardError, resolveAndGuard } from './pathGuard';
+import { resolveWorkspacePath } from './workspaceAccess';
+import { PathGuardError } from './pathGuard';
 import { hashBuffer } from './fileHash';
 import type { AuditLog } from './auditLog';
 import { BackupStore, writeFileAtomically } from './backupStore';
@@ -127,11 +126,9 @@ export class SpreadsheetService {
     const format = spreadsheetFormatForPath(relativePath);
     if (!format) throw new SpreadsheetError('unsupported_spreadsheet_format', `Only .xlsx workbooks are supported: ${relativePath}`);
 
-    const check = checkGlobAccess(relativePath, workspace, loadBridgeIgnore(workspace.root));
-    if (!check.allowed) throw new SpreadsheetError('permission_denied', `Access denied: ${check.reason}`);
     let absolutePath: string;
     try {
-      absolutePath = resolveAndGuard(workspace.root, relativePath);
+      absolutePath = resolveWorkspacePath(workspace, relativePath);
     } catch (error) {
       throw asSpreadsheetError(error, 'permission_denied');
     }

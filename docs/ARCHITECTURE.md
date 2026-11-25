@@ -1,127 +1,62 @@
 # Architecture
 
-## Preferred: MCP Developer Mode
-
 ```
-ChatGPT Developer Mode
-  -> public HTTPS tunnel or funnel
-  -> apps/mcp-server (local adapter only)
-  -> bridge-api on 127.0.0.1:4777
-  -> approved workspace files
-```
-
-The MCP server is an adapter. It does not bypass bridge-api, and it does not touch workspace files directly.
-Only the MCP endpoint is eligible for tunneling later; bridge-api and the dashboard stay localhost-only.
-
-## Alternate: OpenAPI / GPT Actions
-
-The existing relay simulation and OpenAPI docs remain available for the non-MCP path:
-
-- `docs/GPT_ACTION_SETUP.md`
-- `docs/LOCAL_RELAY_SIMULATION.md`
-
-## Current: Localhost MVP
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Your PC (localhost)                   │
-│                                                          │
-│  ┌──────────────┐    HTTP     ┌───────────────────────┐  │
-│  │   Dashboard  │ ──────────► │    Bridge API         │  │
-│  │  (React/Vite)│             │  (Fastify :4777)      │  │
-│  │   :4778      │ ◄────────── │                       │  │
-│  └──────────────┘    JSON     │  ┌─────────────────┐  │  │
-│                               │  │  @bridge/core   │  │  │
-│                               │  │  - pathGuard    │  │  │
-│                               │  │  - globFilter   │  │  │
-│                               │  │  - changeService│  │  │
-│                               │  │  - auditLog     │  │  │
-│                               │  └────────┬────────┘  │  │
-│                               └───────────┼───────────┘  │
-│                                           │              │
-│                    ┌──────────────────────▼──────────┐   │
-│                    │          data/                  │   │
-│                    │  workspaces.json                │   │
-│                    │  audit-log.jsonl                │   │
-│                    │  auth-token.txt                 │   │
-│                    │  backups/<id>/                  │   │
-│                    └─────────────────────────────────┘   │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │               Workspace Files                    │    │
-│  │  C:\Users\developer\Desktop\Dev\Weehzi\...           │    │
-│  │  C:\Users\developer\Desktop\Dev\OtherProject\...     │    │
-│  └──────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
+ MCP client (Claude, ChatGPT, ...)
+        |  HTTP, or HTTPS through a tunnel
+        v
+ +---------------------------- your PC -----------------------------+
+ |  mcp-server :4779                        dashboard :4778         |
+ |  adapter, fixed tool list                React / Vite            |
+ |        |  bearer token                        |                  |
+ |        +------------------+-------------------+                  |
+ |                           v                                      |
+ |                    bridge-api :4777                              |
+ |         auth, permissions, approvals, rate limit                 |
+ |                           |                                      |
+ |                     @bridge/core                                 |
+ |   path guard, file rules, changes, terminal, spreadsheets        |
+ |               |                          |                       |
+ |               v                          v                       |
+ |     registered workspaces        data/ (tokens, policy,          |
+ |     C:\path\to\MyProject          backups, audit log)            |
+ +------------------------------------------------------------------+
 ```
 
-## Future: Cloud Relay + ChatGPT Mobile
+The Bridge API is the only process that touches workspace files. The MCP server and the dashboard are both its clients.
 
-When you're ready to connect ChatGPT mobile, the architecture extends like this:
+## Packages
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  ChatGPT Mobile App                                      │
-│  (Custom GPT with Actions)                              │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTPS
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│  Cloud Relay Server  (e.g. Cloudflare Worker / Railway) │
-│                                                          │
-│  - Authenticates the ChatGPT request                    │
-│  - Forwards to your PC via WebSocket tunnel             │
-│  - Does NOT store file contents                         │
-│  - Rate-limits to prevent abuse                         │
-└────────────────────────┬────────────────────────────────┘
-                         │ WebSocket (outbound from your PC)
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│  Your PC                                                │
-│                                                          │
-│  Bridge API (same code as today)                        │
-│  + WebSocket client that connects OUT to cloud relay    │
-│    (no inbound ports needed)                            │
-└─────────────────────────────────────────────────────────┘
-```
+| Path | Role |
+|---|---|
+| `packages/shared` | Types, spreadsheet contract, relay protocol, limits |
+| `packages/core` | File rules, changes, backups, audit log, terminal jobs, spreadsheets |
+| `apps/bridge-api` | Fastify API, permissions and approvals |
+| `apps/mcp-server` | MCP adapter over HTTP |
+| `apps/dashboard` | Local React dashboard |
+| `apps/relay-server`, `apps/bridge-agent` | Experimental relay, localhost only |
 
-### Key design principle
-Your PC always initiates the outbound WebSocket connection to the cloud relay.
-This means:
-- No open inbound firewall ports
-- No port forwarding
-- The cloud relay cannot initiate requests — it only forwards what your PC subscribes to receive
+The apps import `@bridge/shared` and `@bridge/core` from their compiled `dist/`. The root start, test and typecheck scripts run `build:packages` first.
 
-### What does NOT change when adding cloud relay
-- All security logic stays in `@bridge/core` — path guard, glob filter, backups, audit log
-- Workspace registry stays on your PC
-- File contents never pass through the cloud relay unencrypted
-- Auth token stays local; a separate relay token is used for cloud auth
+## How a path is checked
 
-## Package Structure
+`resolveWorkspacePath()` in `packages/core/src/workspaceAccess.ts` is the single entry point for file tools. It applies the rules to the requested path, resolves and guards it, then applies the rules again to the canonical path on disk. `WorkspaceRegistry.get()` adds the bridge's own `data/` directory to the blocked patterns.
+
+## How a write is gated
+
+A Fastify hook in `apps/bridge-api/src/server.ts` looks at the **matched route**. Write and terminal routes go through `AccessControl.submit()`, which rejects them, runs them, or queues them for approval. Approved operations are re-sent internally with a key that exists only in that process.
+
+## Terminal jobs
+
+`start_terminal_command` launches a detached worker. The worker is the only writer of the job's `state.json` while it runs. The API writes `control.json` (lease, stop request, worker PID). If the worker disappears without saving a result, the API marks the job `worker_lost`.
+
+## Spreadsheets
 
 ```
-packages/shared   → TypeScript types shared by all packages
-packages/core     → Security logic, file operations, workspace registry
-apps/bridge-api   → Fastify HTTP server (current entry point)
-apps/mcp-server   → MCP adapter that forwards to bridge-api
-apps/dashboard    → React/Vite local dashboard
+MCP tool -> shared contract -> POST /spreadsheets/:action
+  -> SpreadsheetService (rules, hash, backup, atomic write, audit, verify)
+  -> XlsxSpreadsheetProvider (minimal ZIP/OpenXML changes)
 ```
 
-Spreadsheet flow:
+## Experimental relay
 
-```
-MCP spreadsheet tool
-  -> shared spreadsheet request/schema contract
-  -> bridge-api /spreadsheets/:action
-  -> SpreadsheetService (workspace guard, hash, backup, atomic write, audit, verify)
-  -> XlsxSpreadsheetProvider (minimal ZIP/OpenXML mutation)
-```
-
-The shared contract owns the `.xlsx` format list, range parser, cell/row values, limits, failure kinds, and MCP tool schemas. The provider canonicalizes ZIP package entry names once at ingestion, rejects unsafe/colliding names, and preserves untouched OpenXML package parts; adding another format requires a provider rather than another tool policy or path system.
-
-Future additions (not yet implemented):
-```
-apps/relay-client → WebSocket client that bridges local API to cloud relay
-apps/relay-server → Cloud relay server (deploy separately)
-```
+The relay would let a PC dial out instead of using a tunnel. Today it runs on localhost only. See [LOCAL_RELAY_SIMULATION.md](LOCAL_RELAY_SIMULATION.md) and the design notes in [RELAY_PLAN.md](RELAY_PLAN.md).

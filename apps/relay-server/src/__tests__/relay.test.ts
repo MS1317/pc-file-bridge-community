@@ -14,7 +14,7 @@ import Fastify from 'fastify';
 // Test 1-3: ALLOWED_OPERATIONS allowlist
 describe('ALLOWED_OPERATIONS allowlist', () => {
   // Import directly to avoid server spin-up
-  const { ALLOWED_OPERATIONS, OPERATION_MAP } = require('shared');
+  const { ALLOWED_OPERATIONS, OPERATION_MAP } = require('@bridge/shared');
 
   it('contains all expected operations', () => {
     const expected = [
@@ -143,7 +143,7 @@ describe('Rate limiter', () => {
 
 // Test 13-15: Agent-side operation validation
 describe('Agent operation validation', () => {
-  const { ALLOWED_OPERATIONS, OPERATION_MAP } = require('shared');
+  const { ALLOWED_OPERATIONS, OPERATION_MAP } = require('@bridge/shared');
 
   function validateRequest(operation: string, method: string, path: string): string | null {
     if (!ALLOWED_OPERATIONS.has(operation)) return 'OPERATION_NOT_ALLOWED';
@@ -209,7 +209,7 @@ describe('Device offline detection', () => {
 // Test 21: Token NOT exposed in relay request
 describe('Security: bridge token isolation', () => {
   it('RelayRequestMessage type has no bridgeToken field', () => {
-    const { OPERATION_MAP } = require('shared');
+    const { OPERATION_MAP } = require('@bridge/shared');
     // A relay request is: { type, requestId, operation, method, path, body, createdAt, nonce }
     // Verify there's no auth/token field defined in a sample message
     const sampleReq = {

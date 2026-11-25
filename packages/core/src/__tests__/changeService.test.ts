@@ -38,6 +38,47 @@ describe('generic file mutation state and revert', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
+  const write = (newContent: string, extra: { relativePath?: string; baseHash?: string } = {}) =>
+    ({ workspaceId: workspace.id, relativePath: 'file.txt', newContent, ...extra });
+
+  it('restores the exact bytes of a file that is not UTF-8, and refuses partial edits to it', () => {
+    const filePath = path.join(root, 'file.txt');
+    const original = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    fs.writeFileSync(filePath, original);
+    const applied = changes.applyImmediate(workspace, write('replaced'));
+    changes.revert(workspace, applied.auditId);
+    expect(fs.readFileSync(filePath).equals(original)).toBe(true);
+    expect(() => changes.previewReplaceRange(workspace, {
+      workspaceId: workspace.id, relativePath: 'file.txt', startLine: 1, endLine: 1, newContent: 'x',
+    })).toThrow('Only UTF-8');
+  });
+
+  it('does not overwrite a file that appeared after a new-file preview, or recreate a deleted one', () => {
+    const filePath = path.join(root, 'file.txt');
+    const created = changes.preview(workspace, write('from client'));
+    fs.writeFileSync(filePath, 'mine');
+    expect(() => changes.applyPending(workspace, created.pendingChangeId)).toThrow('Hash mismatch');
+    expect(fs.readFileSync(filePath, 'utf8')).toBe('mine');
+
+    const edited = changes.preview(workspace, write('from client'));
+    fs.unlinkSync(filePath);
+    expect(() => changes.applyPending(workspace, edited.pendingChangeId)).toThrow('Hash mismatch');
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it.each([true, false])('rejects a stale baseHash in both write paths (file exists: %s)', (exists) => {
+    const filePath = path.join(root, 'file.txt');
+    if (exists) fs.writeFileSync(filePath, 'current');
+    const request = write('new', { baseHash: 'a'.repeat(64) });
+    const preview = changes.preview(workspace, request);
+    expect(preview.safe).toBe(false);
+    expect(preview.warnings).toHaveLength(1);
+    expect(() => changes.applyPending(workspace, preview.pendingChangeId)).toThrow('Hash mismatch');
+    expect(() => changes.applyImmediate(workspace, request)).toThrow('Hash mismatch');
+    expect(fs.existsSync(filePath)).toBe(exists);
+    if (exists) expect(fs.readFileSync(filePath, 'utf8')).toBe('current');
+  });
+
   it('reports absence after reverting a newly created text file and supports revert-of-revert', () => {
     const applied = changes.applyImmediate(workspace, {
       workspaceId: workspace.id,

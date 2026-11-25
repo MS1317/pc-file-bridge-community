@@ -1,27 +1,20 @@
 /**
  * Start the bridge (API + dashboard + MCP server).
- *   node bridge-dev.mjs
+ *   pnpm bridge:start
  */
-import { spawn } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { spawnPnpm } from './pnpm.mjs';
 
 const LINE = '='.repeat(52);
 
 console.log('');
 console.log(LINE);
 console.log('  PC File Bridge');
-console.log('  MCP tools: read / search / preview / apply enabled');
+console.log('  Dashboard: http://127.0.0.1:4778');
+console.log('  Writes and terminal: Dashboard > Access Control');
 console.log(LINE);
 console.log('');
 
-const child = spawn('corepack', ['pnpm', 'dev:mcp'], {
-  stdio: 'inherit',
-  shell: true,
-  cwd: repoRoot,
-});
+const child = spawnPnpm(['dev:mcp']);
 
 child.on('error', (err) => {
   console.error('[ERROR] Failed to start bridge:', err.message);

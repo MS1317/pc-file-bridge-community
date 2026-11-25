@@ -25,13 +25,18 @@ async function request<T>(
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
-      'Content-Type': 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       Authorization: `Bearer ${getToken()}`,
       ...(path.startsWith('/access/') ? { 'X-Local-Admin-Token': localStorage.getItem('bridge_local_admin_token') ?? '' } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
+  }).catch(() => null);
+  const json: any = await res?.json().catch(() => null);
+  // The dashboard's proxy answers 500 with no JSON when the API is down.
+  if (!res || (!json && res.status >= 500)) return { ok: false, error: 'Cannot reach the bridge. Check that it is running.' };
+  if (json && typeof json.ok === 'boolean') return json;
+  // Fastify's own errors (404, empty body, 413) have no ok field; surface their message instead of nothing.
+  return { ok: false, error: json?.error ?? json?.message ?? res.statusText };
 }
 
 export interface AccessPolicy { fileWrites: boolean; terminal: boolean; requireApproval: boolean }

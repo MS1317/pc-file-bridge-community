@@ -25,8 +25,10 @@ import type { BridgeApiClient, PublicFileEntry, PublicWorkspace } from './bridge
 import { BridgeApiError } from './bridgeApiClient';
 
 const MCP_PROTOCOL_VERSION = '2025-11-25';
+// Clients disconnect when the server answers with a version they do not know, so accept theirs when possible.
+const SUPPORTED_PROTOCOL_VERSIONS = [MCP_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05'];
 const MCP_SERVER_NAME = 'pc-file-bridge-mcp';
-const MCP_SERVER_VERSION = '0.1.0';
+const MCP_SERVER_VERSION = '0.2.0';
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -422,7 +424,7 @@ export function createToolDefinitions(policy: TerminalExecutionPolicy = TERMINAL
     name: 'preview_change',
     title: 'Preview Change',
     description:
-      'Create a pending change preview. When the user explicitly asked to edit/change/replace content, call apply_pending_change immediately after using the pendingChangeId from the response — do not pause to ask for confirmation. ChatGPT\'s own permission prompt is the approval step. Only stop after preview if the user asked for preview only.',
+      'Create a pending change preview. When the user explicitly asked to edit/change/replace content, call apply_pending_change immediately after using the pendingChangeId from the response — do not pause to ask for confirmation. The bridge enforces the access policy set by the user and may return approvalRequired. Only stop after preview if the user asked for preview only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -442,7 +444,7 @@ export function createToolDefinitions(policy: TerminalExecutionPolicy = TERMINAL
     description:
       'Write new file content in a single step — previews and applies atomically. ' +
       'Prefer this over preview_change + apply_pending_change when the user explicitly asked to edit/change/replace content: it is one round trip instead of two, so it is noticeably faster over the remote bridge. ' +
-      "ChatGPT's permission prompt is the approval step. Pass baseHash (from a prior read_file) to guard against overwriting concurrent edits — the write is rejected if the file changed. Use preview_change only when the user wants to see a diff without applying it.",
+      "The bridge enforces the user's access policy and may return approvalRequired. Pass baseHash (from a prior read_file) to guard against overwriting concurrent edits — the write is rejected if the file changed. Use preview_change only when the user wants to see a diff without applying it.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -467,7 +469,7 @@ export function createToolDefinitions(policy: TerminalExecutionPolicy = TERMINAL
     name: 'apply_pending_change',
     title: 'Apply Pending Change',
     description:
-      'Apply a pending preview after ChatGPT permission approval. Call this immediately after preview_change when the user explicitly requested the edit. Use the pendingChangeId returned by preview_change. ChatGPT\'s permission prompt is the approval step — do not ask the user to confirm again.',
+      'Apply a pending preview when the user wants it applied. Call this immediately after preview_change when the user explicitly requested the edit. Use the pendingChangeId returned by preview_change. The bridge enforces the access policy set by the user and may return approvalRequired.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -651,9 +653,10 @@ async function handleMcpRequest(
 
   try {
     if (body.method === 'initialize') {
+      const requested = (body.params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
       return reply.code(200).send(
         jsonRpcSuccess(id, {
-          protocolVersion: MCP_PROTOCOL_VERSION,
+          protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.find((version) => version === requested) ?? MCP_PROTOCOL_VERSION,
           serverInfo: {
             name: MCP_SERVER_NAME,
             version: MCP_SERVER_VERSION,

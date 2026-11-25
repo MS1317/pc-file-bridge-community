@@ -13,7 +13,7 @@ export default function WorkspacesPage() {
     setLoading(true);
     const res = await api.listWorkspaces();
     setLoading(false);
-    if (res.ok) setWorkspaces(res.data);
+    if (res.ok) { setWorkspaces(res.data); setError(''); }
     else setError(res.error);
   }, []);
 
@@ -45,7 +45,7 @@ export default function WorkspacesPage() {
       {error && <div className="error-msg" style={{ marginBottom: 16 }}>{error}</div>}
       {loading && <div style={{ color: 'var(--text-muted)' }}>Loading…</div>}
 
-      {!loading && workspaces.length === 0 && (
+      {!loading && !error && workspaces.length === 0 && (
         <div className="empty">No workspaces registered yet. Add one above.</div>
       )}
 
@@ -57,9 +57,6 @@ export default function WorkspacesPage() {
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                   <span style={{ fontWeight: 600, fontSize: 15 }}>{ws.name}</span>
-                  <span className={`tag ${ws.writeMode === 'approval_required' ? 'tag-approval' : 'tag-auto'}`}>
-                    {ws.writeMode === 'approval_required' ? 'Approval Required' : 'Auto Apply'}
-                  </span>
                   <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>ID: {ws.id}</span>
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'var(--mono)', marginBottom: 8 }}>
@@ -231,7 +228,7 @@ function AddWorkspaceForm({ onAdded }: { onAdded: () => void }) {
           <input
             value={root}
             onChange={(e) => setRoot(e.target.value)}
-            placeholder="C:\Users\developer\Desktop\Dev\MyProject"
+            placeholder="C:\path\to\MyProject"
             style={{ fontFamily: 'var(--mono)' }}
           />
         </div>

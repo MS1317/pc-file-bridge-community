@@ -42,7 +42,9 @@ export default function AuditPage() {
     setReverting(entry.id);
     const r = await api.revertChange(entry.workspaceId, entry.id);
     setReverting(null);
-    if (r.ok) {
+    if (r.ok && (r.data as { approvalRequired?: boolean }).approvalRequired) {
+      alert('Waiting for approval. Approve it in Access Control to revert the change.');
+    } else if (r.ok) {
       alert(`Reverted! New audit ID: ${r.data.auditId}`);
       load();
     } else {
@@ -51,7 +53,7 @@ export default function AuditPage() {
   }
 
   function canRevert(entry: AuditEntry): boolean {
-    return entry.action === 'apply' && workspaces.some((w) => w.id === entry.workspaceId);
+    return (entry.action === 'apply' || entry.action === 'spreadsheet') && workspaces.some((w) => w.id === entry.workspaceId);
   }
 
   return (

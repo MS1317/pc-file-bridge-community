@@ -15,7 +15,7 @@ export default function PendingPage() {
     setLoading(true);
     const r = await api.listPending();
     setLoading(false);
-    if (r.ok) setItems(r.data);
+    if (r.ok) { setItems(r.data); setError(''); }
     else setError(r.error);
   }, []);
 
@@ -26,7 +26,8 @@ export default function PendingPage() {
     setBusy(item.pendingChangeId); setMsg(''); setError('');
     const r = await api.applyChange(item.workspaceId, item.pendingChangeId);
     setBusy(null);
-    if (r.ok) { setMsg(`✓ Applied: ${r.data.auditId}`); load(); }
+    if (r.ok && (r.data as { approvalRequired?: boolean }).approvalRequired) { setMsg('Waiting for approval. Approve it in Access Control to apply the change.'); load(); }
+    else if (r.ok) { setMsg(`✓ Applied: ${r.data.auditId}`); load(); }
     else setError(r.error);
   }
 
@@ -52,7 +53,7 @@ export default function PendingPage() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700 }}>Pending Changes</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-            Changes awaiting approval. Expire after 30 minutes. Lost on API restart.
+            Previewed changes that have not been applied. They expire after 30 minutes and are lost on API restart. Operations waiting for approval are in Access Control.
           </p>
         </div>
         <button className="btn-ghost" onClick={load} disabled={loading}>Refresh</button>

@@ -1,6 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { AccessControl, type AccessKind } from './accessControl';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
@@ -9,6 +7,7 @@ import {
   FileService,
   ChangeService,
   AuditLog,
+  loadOrCreateSecret,
   validateToken,
   rotateToken,
   RateLimiter,
@@ -41,11 +40,8 @@ export interface ServerOptions {
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
   const { dataDir, tokenRef, terminalPolicy = TERMINAL_EXECUTION_POLICY } = opts;
 
+  const localAdminToken = loadOrCreateSecret(dataDir, 'local-admin-token.txt');
   const access = new AccessControl(dataDir);
-  const adminTokenPath = path.join(dataDir, 'local-admin-token.txt');
-  fs.mkdirSync(dataDir, { recursive: true });
-  if (!fs.existsSync(adminTokenPath)) fs.writeFileSync(adminTokenPath, crypto.randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
-  const localAdminToken = fs.readFileSync(adminTokenPath, 'utf8').trim();
 
   const registry = new WorkspaceRegistry(dataDir);
   const fileService = new FileService();
@@ -100,8 +96,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     if (!validateToken(String(req.headers['x-local-admin-token'] ?? ''), localAdminToken)) {
       return reply.status(403).send({ ok: false, error: 'Local administrator token required' });
     }
-    const origin = req.headers.origin;
-    if (origin !== 'http://localhost:4778' && origin !== 'http://127.0.0.1:4778') {
+    // Same-origin GETs send no Origin header, so check Sec-Fetch-Site, which browsers always send.
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') {
       return reply.status(403).send({ ok: false, error: 'Untrusted origin' });
     }
   };
@@ -125,12 +122,14 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
   const internalExecutionKey = crypto.randomUUID();
   app.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (req.url.startsWith('/access/')) return;
-    const path = req.url.split('?')[0];
-    const terminal = ['/terminal/run', '/terminal/start', '/terminal/renew', '/terminal/stop'].includes(path);
+    // Decide from the matched route: the raw URL can spell the same route differently (/changes/%77rite).
+    const route = req.routeOptions.url ?? '';
+    const action = (req.params as { action?: string } | undefined)?.action ?? '';
+    const path = route.replace(':action', action);
+    const terminal = ['/terminal/run', '/terminal/start', '/terminal/renew', '/terminal/stop'].includes(route);
     const spreadsheetMutations = ['append_spreadsheet_rows', 'update_spreadsheet_range', 'update_spreadsheet_rows_by_key', 'upsert_spreadsheet_rows', 'create_spreadsheet', 'create_spreadsheet_sheet'];
-    const write = ['/changes/write', '/changes/apply', '/changes/revert'].includes(path)
-      || (path.startsWith('/spreadsheets/') && spreadsheetMutations.includes(path.split('/')[2]));
+    const write = ['/changes/write', '/changes/apply', '/changes/revert'].includes(route)
+      || (route === '/spreadsheets/:action' && spreadsheetMutations.includes(action));
     if (!terminal && !write) return;
     if (req.headers['x-local-approval-execution'] === internalExecutionKey) return;
     const kind: AccessKind = terminal ? 'terminal' : 'fileWrites';
@@ -139,11 +138,18 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     try {
       // Display the complete submitted operation locally; never approve an unseen suffix.
       const serialized = JSON.stringify(body ?? {});
-      if (serialized.length > 128 * 1024) {
+      // These bodies hold only an ID, so look up what it stands for.
+      const pending = route === '/changes/apply'
+        ? changeService.listPending().find((item) => item.pendingChangeId === body?.pendingChangeId) : undefined;
+      const reverted = route === '/changes/revert' ? auditLog.getById(String(body?.auditId ?? '')) : undefined;
+      const diff = pending?.diff ?? '';
+      if (access.getPolicy().requireApproval && serialized.length + diff.length > 128 * 1024) {
         return reply.status(413).send({ ok: false, error: 'Approval payload exceeds 128 KiB; split the operation into smaller changes' });
       }
       const result = access.submit(kind, path, body?.workspaceId || '', path + ' requested', {
-        relativePath: String(body?.relativePath || ''),
+        relativePath: String(body?.relativePath || pending?.relativePath || reverted?.relativePath || ''),
+        undoes: reverted ? `${reverted.action} ${reverted.id} from ${reverted.timestamp}` : '',
+        diff,
         command: String(body?.command || ''),
         payload: serialized
       }, async () => {

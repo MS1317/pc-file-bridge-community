@@ -1,8 +1,8 @@
-import { join } from 'path';
-import { loadOrCreateCredentials } from './credentials.js';
-import { BridgeAgent } from './agent.js';
+import { resolve } from 'path';
+import { loadOrCreateCredentials } from './credentials';
+import { BridgeAgent } from './agent';
 
-const DATA_DIR = process.env.AGENT_DATA_DIR ?? join(process.cwd(), 'data', 'agent');
+const DATA_DIR = process.env.AGENT_DATA_DIR ?? resolve(__dirname, '../../../data/agent');
 const RELAY_URL = process.env.RELAY_URL ?? 'ws://127.0.0.1:4888/device';
 const BRIDGE_URL = process.env.BRIDGE_URL ?? 'http://127.0.0.1:4777';
 const BRIDGE_TOKEN_ENV = process.env.BRIDGE_TOKEN;
@@ -17,7 +17,7 @@ const creds = loadOrCreateCredentials(DATA_DIR);
 
 console.log('');
 console.log('╔══════════════════════════════════════════════╗');
-console.log('║         Bridge Agent  v0.1.0                 ║');
+console.log('║         Bridge Agent  v0.2.0                 ║');
 console.log('╠══════════════════════════════════════════════╣');
 console.log(`║  Relay  →  ${RELAY_URL.padEnd(33)}║`);
 console.log(`║  Bridge →  ${BRIDGE_URL.padEnd(33)}║`);

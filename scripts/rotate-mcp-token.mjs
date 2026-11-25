@@ -3,7 +3,7 @@
  * Generates a new token, writes it to data/mcp-remote-token.txt, and prints it.
  *
  * Do this only if the token is compromised.
- * After rotating, update Authorization: Bearer <token> in your ChatGPT MCP config.
+ * After rotating, restart the MCP server and update the token in every MCP client.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,10 +26,10 @@ console.log('New token:');
 console.log('');
 console.log(newToken);
 console.log('');
-console.warn('ACTION REQUIRED: Update your ChatGPT MCP configuration with the new token.');
-console.warn('The old token is now invalid. ChatGPT will fail to connect until you update it.');
+console.warn('ACTION REQUIRED: Restart the MCP server, then update the token in every MCP client.');
+console.warn('The running MCP server keeps accepting the old token until it restarts.');
 console.log('');
-console.log('In your ChatGPT MCP config, change Authorization to:');
+console.log('Header for clients that support one:');
 console.log(`  Authorization: Bearer ${newToken}`);
 console.log('');
 console.log('The internal bridge API token (data/auth-token.txt) was NOT changed.');

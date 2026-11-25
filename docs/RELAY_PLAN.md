@@ -1,5 +1,7 @@
 # Relay Plan — Stage 2 Architecture
 
+> **Design notes, not documentation.** Nothing here is deployed, and some of it was never built. To use the bridge today, see [CLIENT_CONNECTIONS.md](CLIENT_CONNECTIONS.md).
+
 > Stage 1.5 is localhost-only hardening. This document describes Stage 2: making the bridge reachable from ChatGPT mobile without exposing inbound ports.
 
 ---

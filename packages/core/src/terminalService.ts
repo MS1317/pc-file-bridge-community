@@ -202,10 +202,7 @@ export class TerminalService {
         windowsHide: true,
       });
       worker.unref();
-      const snapshot = this.store.read(jobId);
-      if ((snapshot.state.state === 'running' || snapshot.state.state === 'stopping') && worker.pid) {
-        this.store.writeState({ ...snapshot.state, workerProcessId: worker.pid });
-      }
+      if (worker.pid) this.store.writeControl({ ...control, workerProcessId: worker.pid });
       worker.once('error', (error) => this.failWorkerStart(jobId, error.message));
     } catch (error) {
       this.failWorkerStart(jobId, error instanceof Error ? error.message : 'Failed to start terminal worker');
@@ -287,7 +284,12 @@ export class TerminalService {
       snapshot.state.state !== 'running' &&
       snapshot.state.state !== 'stopping'
     ) return snapshot;
-    if (!snapshot.state.workerProcessId || isProcessAlive(snapshot.state.workerProcessId)) return snapshot;
+    const workerProcessId = snapshot.state.workerProcessId ?? snapshot.control.workerProcessId ?? null;
+    if (!workerProcessId || isProcessAlive(workerProcessId)) return snapshot;
+
+    // The worker saves its result before exiting, so only a read made after it is gone is final.
+    snapshot = this.store.read(snapshot.state.jobId);
+    if (snapshot.state.state !== 'running' && snapshot.state.state !== 'stopping') return snapshot;
 
     if (snapshot.state.processId && isProcessAlive(snapshot.state.processId)) {
       stopProcessTree(snapshot.state.processId);
@@ -361,7 +363,7 @@ export class TerminalService {
       state: visibleState,
       processId: state.processId,
       processStartedAt: state.processStartedAt,
-      workerProcessId: state.workerProcessId,
+      workerProcessId: state.workerProcessId ?? control.workerProcessId ?? null,
       leaseExpiresAt: visibleState === 'running' || visibleState === 'stopping' ? control.leaseExpiresAt : null,
       terminationReason: state.terminationReason,
       command: state.command,

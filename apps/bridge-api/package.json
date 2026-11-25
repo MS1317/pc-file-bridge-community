@@ -1,6 +1,6 @@
 {
   "name": "bridge-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
@@ -12,8 +12,8 @@
   "dependencies": {
     "@bridge/core": "workspace:*",
     "@bridge/shared": "workspace:*",
-    "fastify": "^4.27.0",
-    "@fastify/cors": "^9.0.1"
+    "fastify": "^5.12.8",
+    "@fastify/cors": "^11.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

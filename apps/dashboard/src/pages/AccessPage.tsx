@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type ApprovalRequest, type AccessPolicy } from '../api';
+import { DiffView } from './DiffPage';
 
 export default function AccessPage() {
   const [policy, setPolicy] = useState<AccessPolicy | null>(null);
@@ -32,7 +33,7 @@ export default function AccessPage() {
     setBusy(true);
     const result = approve ? await api.approveAccess(id) : await api.rejectAccess(id);
     setBusy(false);
-    setMessage(result.ok ? (result.data.state === 'approved' ? 'Operation executed.' : 'Request ' + result.data.state) : result.error);
+    setMessage(result.ok ? (result.data.state === 'approved' ? 'Operation executed.' : 'Request ' + result.data.state + (result.data.error ? ': ' + result.data.error : '')) : result.error);
     refresh();
   }
 
@@ -55,7 +56,7 @@ export default function AccessPage() {
       ] as const).map(([key, title]) => <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', cursor: 'pointer' }}>
         <input type="checkbox" checked={policy[key]} disabled={busy} onChange={(e) => {
           if ((key === 'terminal' || key === 'requireApproval') && (key === 'terminal' ? e.target.checked : !e.target.checked) &&
-              !confirm(key === 'terminal' ? 'Terminal commands run with your Windows user privileges. Enable?' : 'Disable per-operation approvals? Authenticated clients may then execute without another prompt.')) return;
+              !confirm(key === 'terminal' ? 'Terminal commands run with your user account\'s privileges and are not sandboxed. Enable?' : 'Disable per-operation approvals? Authenticated clients may then execute without another prompt.')) return;
           update({ ...policy, [key]: e.target.checked });
         }} />
         <span>{title}</span>
@@ -70,7 +71,8 @@ export default function AccessPage() {
     {approvals.filter(a => a.state === 'pending').map(a => <div className="card" key={a.approvalId} style={{ marginBottom: 12 }}>
       <b>{a.kind === 'terminal' ? 'Terminal' : 'File modification'}: {a.action}</b>
       <p style={{ margin: '8px 0', fontSize: 12 }}>Workspace: {a.workspaceId || 'Not specified'}</p>
-      {Object.entries(a.details).filter(([k,v]) => v && k !== 'payload').map(([k,v]) => <div key={k} style={{ marginBottom: 5, overflowWrap: 'anywhere' }}><code>{k}: {v}</code></div>)}
+      {Object.entries(a.details).filter(([k,v]) => v && k !== 'payload' && k !== 'diff').map(([k,v]) => <div key={k} style={{ marginBottom: 5, overflowWrap: 'anywhere' }}><code>{k}: {v}</code></div>)}
+      {a.details.diff && <DiffView diff={a.details.diff} />}
       <div style={{ fontSize: 12, marginTop: 10, marginBottom: 6 }}>Exact submitted payload (review before approving)</div>
       <pre style={{ fontSize: 11, maxHeight: 320, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: '#0b0e1a', padding: 12, borderRadius: 6 }}>{a.details.payload}</pre>
       <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Expires {new Date(a.expiresAt).toLocaleString()}</p>

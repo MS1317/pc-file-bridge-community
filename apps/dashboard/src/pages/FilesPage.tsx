@@ -26,6 +26,7 @@ export default function FilesPage() {
     setFiles([]);
     setSearchResults(null);
     setSelectedFile(null);
+    setError('');
     setLoading(true);
     api.listFiles(selectedWs).then((r) => {
       setLoading(false);
@@ -37,6 +38,7 @@ export default function FilesPage() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!searchQuery.trim() || !selectedWs) return;
+    setError('');
     setLoading(true);
     const r = await api.searchFiles(selectedWs, searchQuery);
     setLoading(false);
@@ -46,6 +48,7 @@ export default function FilesPage() {
 
   async function handleReadFile(relativePath: string) {
     if (!selectedWs) return;
+    setError('');
     setSelectedFile(null);
     const r = await api.readFile(selectedWs, relativePath);
     if (r.ok) setSelectedFile(r.data);
