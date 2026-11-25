@@ -38,7 +38,7 @@
     "dev:relay-local": "node ./scripts/pnpm.mjs build:packages && concurrently \"node ./scripts/pnpm.mjs --filter bridge-api dev\" \"node ./scripts/pnpm.mjs --filter relay-server dev\" \"node ./scripts/pnpm.mjs --filter bridge-agent dev\""
   },
   "devDependencies": {
-    "@types/node": "^20.12.7",
+    "@types/node": "^26.6.6",
     "concurrently": "^8.2.2",
     "typescript": "^5.4.5"
   }
